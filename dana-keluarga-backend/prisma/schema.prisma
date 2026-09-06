@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum FamilyRole {
+  ADMIN
+  MEMBER
+  TREASURER
+}
+enum SystemRole {
+  SUPER_ADMIN
+  USER
+}
+enum MembershipStatus {
+  ACTIVE
+  INACTIVE
+}
+enum LedgerDirection {
+  IN
+  OUT
+}
+enum LedgerType {
+  INITIAL_BALANCE
+  CONTRIBUTION
+  OTHER_INCOME
+  EXPENSE
+  LOAN_DISBURSEMENT
+  LOAN_REPAYMENT
+  GOAL_CONTRIBUTION
+  ADJUSTMENT
+  REVERSAL
+}
+enum LoanStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ACTIVE
+  PAID_OFF
+  CANCELLED
+}
+enum InstallmentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+}
+enum PaymentProvider {
+  MANUAL
+  MIDTRANS
+  XENDIT
+  DOKU
+  SANDBOX
+}
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  EXPIRED
+  CANCELLED
+}
+enum NotificationType {
+  LOAN_REQUESTED
+  LOAN_APPROVED
+  LOAN_REJECTED
+  INSTALLMENT_DUE
+  PAYMENT_SUCCESS
+  LOAN_PAID_OFF
+  GENERAL
+}
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  email String? @unique
+  phone String @unique
+  passwordHash String
+  systemRole SystemRole @default(USER)
+  avatarUrl String?
+  isActive Boolean @default(true)
+  lastLoginAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  memberships FamilyMember[]
+  loans Loan[] @relation("BorrowerLoans")
+  approvedLoans Loan[] @relation("ApprovedLoans")
+  rejectedLoans Loan[] @relation("RejectedLoans")
+  ledgerEntries LedgerEntry[]
+  notifications Notification[]
+  auditLogs AuditLog[]
+  refreshTokens RefreshToken[]
+}
+
+model Family {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  code String @unique
+  description String?
+  currency String @default("IDR")
+  createdById String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  memberships FamilyMember[]
+  loans Loan[]
+  ledgerEntries LedgerEntry[]
+  goals FundGoal[]
+  payments Payment[]
+  notifications Notification[]
+  auditLogs AuditLog[]
+}
+
+model FamilyMember {
+  id String @id @default(uuid()) @db.Uuid
+  familyId String @db.Uuid
+  userId String @db.Uuid
+  role FamilyRole @default(MEMBER)
+  status MembershipStatus @default(ACTIVE)
+  joinedAt DateTime @default(now())
+  family Family @relation(fields: [familyId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  @@unique([familyId, userId])
+  @@index([familyId])
+  @@index([userId])
+}
+
+model LedgerEntry {
+  id String @id @default(uuid()) @db.Uuid
+  familyId String @db.Uuid
+  type LedgerType
+  direction LedgerDirection
+  amount Decimal @db.Decimal(18, 2)
+  description String
+  referenceType String?
+  referenceId String?
+  createdById String @db.Uuid
+  occurredAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  family Family @relation(fields: [familyId], references: [id])
+  createdBy User @relation(fields: [createdById], references: [id])
+  @@index([familyId, occurredAt])
+}
+
+model Loan {
+  id String @id @default(uuid()) @db.Uuid
+  familyId String @db.Uuid
+  borrowerId String @db.Uuid
+  principalAmount Decimal @db.Decimal(18, 2)
+  tenorMonths Int
+  purpose String
+  requestedAt DateTime @default(now())
+  status LoanStatus @default(PENDING)
+  approvedById String? @db.Uuid
+  approvedAt DateTime?
+  rejectedById String? @db.Uuid
+  rejectedAt DateTime?
+  rejectionReason String?
+  disbursedAt DateTime?
+  paidOffAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  family Family @relation(fields: [familyId], references: [id])
+  borrower User @relation("BorrowerLoans", fields: [borrowerId], references: [id])
+  approvedBy User? @relation("ApprovedLoans", fields: [approvedById], references: [id])
+  rejectedBy User? @relation("RejectedLoans", fields: [rejectedById], references: [id])
+  installments LoanInstallment[]
+  payments Payment[]
+  @@index([familyId, status])
+  @@index([borrowerId])
+}
+
+model LoanInstallment {
+  id String @id @default(uuid()) @db.Uuid
+  loanId String @db.Uuid
+  installmentNumber Int
+  dueDate DateTime
+  principalAmount Decimal @db.Decimal(18, 2)
+  paidAmount Decimal @default(0) @db.Decimal(18, 2)
+  remainingAmount Decimal @db.Decimal(18, 2)
+  status InstallmentStatus @default(UNPAID)
+  paidAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  loan Loan @relation(fields: [loanId], references: [id])
+  payments Payment[]
+  @@unique([loanId, installmentNumber])
+  @@index([dueDate, status])
+}
+
+model Payment {
+  id String @id @default(uuid()) @db.Uuid
+  familyId String @db.Uuid
+  loanId String @db.Uuid
+  installmentId String @db.Uuid
+  payerId String @db.Uuid
+  amount Decimal @db.Decimal(18, 2)
+  provider PaymentProvider
+  externalId String @unique
+  providerReference String?
+  qrisPayload String?
+  qrisUrl String?
+  status PaymentStatus @default(PENDING)
+  expiresAt DateTime?
+  paidAt DateTime?
+  rawCallback Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  family Family @relation(fields: [familyId], references: [id])
+  loan Loan @relation(fields: [loanId], references: [id])
+  installment LoanInstallment @relation(fields: [installmentId], references: [id])
+  @@index([loanId])
+  @@index([installmentId])
+  @@index([status])
+}
+
+model FundGoal {
+  id String @id @default(uuid()) @db.Uuid
+  familyId String @db.Uuid
+  name String
+  description String?
+  targetAmount Decimal @db.Decimal(18, 2)
+  targetDate DateTime?
+  status String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  family Family @relation(fields: [familyId], references: [id])
+}
+
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  familyId String? @db.Uuid
+  type NotificationType
+  title String
+  message String
+  isRead Boolean @default(false)
+  metadata Json?
+  createdAt DateTime @default(now())
+  readAt DateTime?
+  user User @relation(fields: [userId], references: [id])
+  family Family? @relation(fields: [familyId], references: [id])
+  @@index([userId, isRead])
+}
+
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  actorId String @db.Uuid
+  familyId String? @db.Uuid
+  action String
+  entityType String
+  entityId String
+  before Json?
+  after Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  actor User @relation(fields: [actorId], references: [id])
+  family Family? @relation(fields: [familyId], references: [id])
+  @@index([familyId, createdAt])
+}
+
+model RefreshToken {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  tokenHash String @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id])
+  @@index([userId, revokedAt])
+}
