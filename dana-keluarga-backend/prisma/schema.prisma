@@ -83,6 +83,7 @@ model User {
   avatarUrl String?
   isActive Boolean @default(true)
   lastLoginAt DateTime?
+  whatsappOptInAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   memberships FamilyMember[]
@@ -91,6 +92,7 @@ model User {
   rejectedLoans Loan[] @relation("RejectedLoans")
   ledgerEntries LedgerEntry[]
   notifications Notification[]
+  whatsappMessages WhatsAppMessage[]
   auditLogs AuditLog[]
   refreshTokens RefreshToken[]
 }
@@ -110,6 +112,7 @@ model Family {
   goals FundGoal[]
   payments Payment[]
   notifications Notification[]
+  whatsappMessages WhatsAppMessage[]
   auditLogs AuditLog[]
 }
 
@@ -271,4 +274,37 @@ model RefreshToken {
   createdAt DateTime @default(now())
   user User @relation(fields: [userId], references: [id])
   @@index([userId, revokedAt])
+}
+
+// Durable outbox: written in the same transaction as each business event.
+// Simulation is deliberately distinct from real delivery.
+enum WhatsAppMessageStatus {
+  QUEUED
+  PROCESSING
+  SIMULATED
+  FAILED
+  CANCELLED
+}
+
+model WhatsAppMessage {
+  id String @id @default(uuid()) @db.Uuid
+  eventKey String @unique
+  userId String @db.Uuid
+  familyId String @db.Uuid
+  kind String
+  body String
+  installmentId String? @db.Uuid
+  status WhatsAppMessageStatus @default(QUEUED)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  lockedAt DateTime?
+  completedAt DateTime?
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id])
+  family Family @relation(fields: [familyId], references: [id])
+  @@index([status, nextAttemptAt])
+  @@index([familyId, createdAt])
+  @@index([installmentId, kind, status])
 }

@@ -21,6 +21,10 @@ Database baru harus dibuat oleh administrator PostgreSQL bila user tidak memilik
 CREATE DATABASE dana_keluarga OWNER your_database_user ENCODING 'UTF8';
 ```
 
-## Status MVP
+## Status implementasi
 
-Schema ledger dan domain utama, precision nominal, seed, health/readiness, auth login, dashboard aggregate, dan UI reference baseline telah disiapkan. Payment gateway dan WhatsApp memerlukan credential/perangkat eksternal sebelum diaktifkan di production. Migration, loan workflow lengkap, RBAC, webhook idempotency, dan test integration adalah tahap berikutnya setelah koneksi PostgreSQL tersedia.
+Pengelolaan anggota, kas, pengajuan/persetujuan/pencairan pinjaman, dan jadwal cicilan tersedia. Alur notifikasi WhatsApp serta pembayaran kini memiliki **mode simulasi** dengan antrean persisten, persetujuan penerima, pengingat H-3/hari H, halaman cicilan, dan riwayat pesan.
+
+Pengiriman WhatsApp nyata dan payment gateway belum diaktifkan. Tidak ada QRIS yang dapat dibayar pada mode simulasi. Konfirmasi simulasi hanya tersedia untuk pengelola pada lingkungan pengembangan dan tetap mengubah catatan database pengembangan.
+
+Lihat [panduan WhatsApp dan pembayaran simulasi](docs/whatsapp-simulation.md) untuk migration, konfigurasi, aturan jadwal, pengujian, dan batas implementasi. Migration baru harus diterapkan pada database tujuan sebelum menjalankan kode ini.

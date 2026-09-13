@@ -28,6 +28,9 @@ ledgerRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
   if (!req.auth?.familyId) return res.status(400).json({ success: false, error: { code: 'FAMILY_REQUIRED', message: 'Akun belum memiliki keluarga' } });
   const parsed = entrySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, error: { code: 'INVALID_LEDGER_ENTRY', message: 'Arah, nominal, dan keterangan kas wajib valid' } });
-  const entry = await prisma.ledgerEntry.create({ data: { familyId: req.auth.familyId, direction: parsed.data.direction as LedgerDirection, type: parsed.data.direction === 'IN' ? LedgerType.OTHER_INCOME : LedgerType.EXPENSE, amount: parsed.data.amount, description: parsed.data.description, occurredAt: parsed.data.occurredAt, createdById: req.auth.sub }, include: { createdBy: { select: { id: true, name: true } } } });
+  const entry = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Family" WHERE id = ${req.auth!.familyId}::uuid FOR UPDATE`;
+    return tx.ledgerEntry.create({ data: { familyId: req.auth!.familyId!, direction: parsed.data.direction as LedgerDirection, type: parsed.data.direction === 'IN' ? LedgerType.OTHER_INCOME : LedgerType.EXPENSE, amount: parsed.data.amount, description: parsed.data.description, occurredAt: parsed.data.occurredAt, createdById: req.auth!.sub }, include: { createdBy: { select: { id: true, name: true } } } });
+  });
   return res.status(201).json({ success: true, data: entry, message: 'Catatan kas berhasil disimpan' });
 });

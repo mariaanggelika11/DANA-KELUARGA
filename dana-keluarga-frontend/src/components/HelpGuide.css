@@ -1,0 +1,100 @@
+.help-guide {
+  max-width: 980px;
+  margin-bottom: 28px;
+}
+.guide-welcome {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px;
+  background: #eee9f3;
+  border: 1px solid #ded5e8;
+  border-radius: 10px;
+  color: #51425f;
+}
+.guide-welcome > svg {
+  flex-shrink: 0;
+}
+.guide-welcome h2 {
+  font:
+    600 22px 'Playfair Display',
+    serif;
+  margin: 0 0 8px;
+}
+.guide-welcome p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.guide-topics {
+  display: grid;
+  gap: 12px;
+  margin: 22px 0;
+}
+.guide-topic {
+  background: #fffdf9;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.guide-topic summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px;
+  cursor: pointer;
+  list-style: none;
+}
+.guide-topic summary::-webkit-details-marker {
+  display: none;
+}
+.guide-topic summary strong,
+.guide-topic summary small {
+  display: block;
+}
+.guide-topic summary strong {
+  font-size: 15px;
+}
+.guide-topic summary small {
+  color: #746b76;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 5px;
+}
+.guide-topic summary svg {
+  flex-shrink: 0;
+}
+.guide-topic[open] summary svg {
+  transform: rotate(90deg);
+}
+.guide-topic summary:hover {
+  background: #faf6f0;
+  border-radius: 9px;
+}
+.guide-topic summary:focus-visible {
+  outline: 3px solid #3276b4;
+  outline-offset: 2px;
+}
+.guide-topic-content {
+  padding: 0 22px 22px;
+  border-top: 1px solid var(--line);
+}
+.guide-topic-content ol {
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.guide-topic-content li + li {
+  margin-top: 9px;
+}
+.guide-troubleshooting dt {
+  font-weight: 700;
+  font-size: 13px;
+  margin-top: 18px;
+}
+.guide-troubleshooting dd {
+  margin: 7px 0 0;
+  color: #6a606e;
+  font-size: 13px;
+  line-height: 1.7;
+}

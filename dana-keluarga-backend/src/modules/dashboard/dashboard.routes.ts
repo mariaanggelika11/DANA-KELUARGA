@@ -11,12 +11,12 @@ dashboardRouter.get('/summary', requireAuth, async (req: AuthRequest, res) => {
     const [incoming, outgoing, activeLoans, dueInstallments, members] = await Promise.all([
       prisma.ledgerEntry.aggregate({ _sum: { amount: true }, where: { familyId, direction: 'IN' } }),
       prisma.ledgerEntry.aggregate({ _sum: { amount: true }, where: { familyId, direction: 'OUT' } }),
-      prisma.loan.aggregate({ _sum: { principalAmount: true }, where: { familyId, status: 'ACTIVE' } }),
+      prisma.loanInstallment.aggregate({ _sum: { remainingAmount: true }, where: { loan: { familyId, status: 'ACTIVE' } } }),
       prisma.loanInstallment.aggregate({ _sum: { remainingAmount: true }, where: { loan: { familyId }, status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] } } }),
       prisma.familyMember.count({ where: { familyId, status: 'ACTIVE' } }),
     ]);
     const balance = Number(incoming._sum.amount ?? 0) - Number(outgoing._sum.amount ?? 0);
-    return res.json({ success: true, data: { balance, loans: Number(activeLoans._sum.principalAmount ?? 0), installments: Number(dueInstallments._sum.remainingAmount ?? 0), members } });
+    return res.json({ success: true, data: { balance, loans: Number(activeLoans._sum.remainingAmount ?? 0), installments: Number(dueInstallments._sum.remainingAmount ?? 0), members } });
   } catch {
     return res.status(503).json({ success: false, error: { code: 'DASHBOARD_UNAVAILABLE', message: 'Ringkasan belum tersedia' } });
   }
