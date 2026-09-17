@@ -11,14 +11,18 @@ import {
   WalletCards,
 } from 'lucide-react'
 import './App.css'
+import { HierarchySetup } from './features/approvals/HierarchySetup'
+import { ApprovalInbox } from './features/approvals/ApprovalInbox'
 import { Feedback } from './components/Feedback'
 import { PasswordInput } from './components/PasswordInput'
 import { ValidatedForm } from './components/ValidatedForm'
 import { LoaderCircle, LogIn } from 'lucide-react'
 import { WhatsAppSettings } from './components/WhatsAppSettings'
 import { NotificationInbox } from './components/notifications/NotificationInbox'
+import { FamilySwitcher } from './components/layout/FamilySwitcher'
 import { AppShell } from './components/layout/AppShell'
 import { HelpGuide } from './components/HelpGuide'
+import { useLoanPermissions } from './hooks/useLoanPermissions'
 import { useUnreadNotifications } from './hooks/useUnreadNotifications'
 import {
   initialPage,
@@ -97,6 +101,7 @@ type Loan = {
   rejectedBy?: { id: string; name: string } | null
   borrower: { id: string; name: string; phone: string }
   installments: Installment[]
+  approvalRequest?: { id: string; currentStep: number; status: string } | null
 }
 type User = SessionUser
 type Member = {
@@ -122,6 +127,20 @@ function App() {
   const [loginError, setLoginError] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
   const [active, setActive] = useState<AppPage>(initialPage)
+  const loanPermissions = useLoanPermissions(user, active === 'Pinjaman')
+  const [hierarchyDirty, setHierarchyDirty] = useState(false)
+  const [approvalRequestId, setApprovalRequestId] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('request'),
+  )
+  const openApproval = (id: string) => {
+    setApprovalRequestId(id)
+    setActive('Persetujuan')
+    window.history.replaceState(
+      null,
+      '',
+      `?view=approvals&request=${encodeURIComponent(id)}`,
+    )
+  }
   const [paymentInstallmentId, setPaymentInstallmentId] = useState<
     string | null
   >(() => new URLSearchParams(window.location.search).get('installment'))
@@ -139,6 +158,18 @@ function App() {
     window.history.replaceState(null, '', window.location.pathname)
   }
   const navigate = (page: AppPage) => {
+    if (
+      hierarchyDirty &&
+      page !== active &&
+      !window.confirm('Perubahan hirarki belum disimpan. Tinggalkan halaman?')
+    )
+      return
+    setApprovalRequestId(null)
+    if (
+      user?.systemRole === 'SUPER_ADMIN' &&
+      ['Ringkasan', 'Kas', 'Pinjaman', 'Cicilan', 'Persetujuan'].includes(page)
+    )
+      page = 'Setup Hirarki'
     setActive(page)
     setPaymentInstallmentId(null)
     window.history.replaceState(null, '', `?view=${pageQueries[page]}`)
@@ -169,8 +200,6 @@ function App() {
     tenorMonths: '6',
     purpose: '',
   })
-  const [rejectLoanId, setRejectLoanId] = useState<string | null>(null)
-  const [rejectionReason, setRejectionReason] = useState('')
   const [notice, setNoticeState] = useState<Notice | null>(null)
   const [loading, setLoading] = useState(false)
   const [members, setMembers] = useState<Member[]>([])
@@ -216,7 +245,20 @@ function App() {
   useEffect(() => {
     if (localStorage.getItem('dana_access_token'))
       api<{ data: User }>('/auth/me')
-        .then((payload) => setUser(payload.data))
+        .then((payload) => {
+          setUser(payload.data)
+          if (
+            payload.data.systemRole === 'SUPER_ADMIN' &&
+            ![
+              'Anggota',
+              'Notifikasi',
+              'Pengaturan',
+              'Panduan',
+              'Setup Hirarki',
+            ].includes(initialPage())
+          )
+            setActive('Setup Hirarki')
+        })
         .catch(() => localStorage.removeItem('dana_access_token'))
   }, [])
   const loadMembers = async () => {
@@ -263,27 +305,29 @@ function App() {
     if (!user) return
     const controller = new AbortController()
     const options = { signal: controller.signal }
-    api<{ data: Summary }>('/dashboard/summary', options)
-      .then((payload) => {
-        if (!controller.signal.aborted) setSummary(payload.data)
-      })
-      .catch(() => undefined)
-    api<{ data: Loan[] }>('/loans', options)
-      .then((payload) => {
-        if (!controller.signal.aborted) {
-          setLoans(payload.data)
-          setLoansError('')
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setLoansError(
-            error instanceof Error ? error.message : 'Pinjaman gagal dimuat',
-          )
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoansLoading(false)
-      })
+    if (user.systemRole !== 'SUPER_ADMIN')
+      api<{ data: Summary }>('/dashboard/summary', options)
+        .then((payload) => {
+          if (!controller.signal.aborted) setSummary(payload.data)
+        })
+        .catch(() => undefined)
+    if (user.systemRole !== 'SUPER_ADMIN')
+      api<{ data: Loan[] }>('/loans', options)
+        .then((payload) => {
+          if (!controller.signal.aborted) {
+            setLoans(payload.data)
+            setLoansError('')
+          }
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted)
+            setLoansError(
+              error instanceof Error ? error.message : 'Pinjaman gagal dimuat',
+            )
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoansLoading(false)
+        })
     api<{ data: Member[] }>('/management/members', options)
       .then((payload) => {
         if (!controller.signal.aborted) {
@@ -300,14 +344,15 @@ function App() {
       .finally(() => {
         if (!controller.signal.aborted) setMembersLoading(false)
       })
-    api<{ data: LedgerEntry[] }>('/ledger', options)
-      .then((payload) => {
-        if (!controller.signal.aborted) setLedger(payload.data)
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!controller.signal.aborted) setLedgerLoading(false)
-      })
+    if (user.systemRole !== 'SUPER_ADMIN')
+      api<{ data: LedgerEntry[] }>('/ledger', options)
+        .then((payload) => {
+          if (!controller.signal.aborted) setLedger(payload.data)
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (!controller.signal.aborted) setLedgerLoading(false)
+        })
     if (user.systemRole === 'SUPER_ADMIN')
       api<{ data: Family[] }>('/management/families', options)
         .then((payload) => {
@@ -341,6 +386,8 @@ function App() {
       localStorage.setItem('dana_refresh_token', payload.data.refreshToken)
       setLoginForm((current) => ({ ...current, password: '' }))
       setUser(payload.data.user)
+      if (payload.data.user.systemRole === 'SUPER_ADMIN')
+        navigate('Setup Hirarki')
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : 'Login gagal')
     } finally {
@@ -348,6 +395,11 @@ function App() {
     }
   }
   const logout = async () => {
+    if (
+      hierarchyDirty &&
+      !window.confirm('Perubahan hirarki belum disimpan. Keluar dari akun?')
+    )
+      return
     const refreshToken = localStorage.getItem('dana_refresh_token')
     await api('/auth/logout', {
       method: 'POST',
@@ -365,7 +417,6 @@ function App() {
     setLoanFormOpen(false)
     setLedgerFormOpen(false)
     setMemberFormOpen(false)
-    setRejectLoanId(null)
     setFamilies([])
     setActive('Ringkasan')
     closePayment()
@@ -509,34 +560,6 @@ function App() {
       setLoading(false)
     }
   }
-  const updateLoan = async (
-    id: string,
-    action: 'approve' | 'disburse' | 'reject',
-    reason?: string,
-  ) => {
-    setLoading(true)
-    try {
-      await api(`/loans/${id}/${action}`, {
-        method: 'POST',
-        body: action === 'reject' ? JSON.stringify({ reason }) : undefined,
-      })
-      setRejectLoanId(null)
-      setRejectionReason('')
-      refreshFinancials()
-      showNotice(
-        `Pinjaman berhasil ${action === 'approve' ? 'disetujui' : action === 'disburse' ? 'dicairkan' : 'ditolak'}.`,
-      )
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Aksi gagal', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }
-  const submitRejection = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!rejectLoanId) return
-    await updateLoan(rejectLoanId, 'reject', rejectionReason)
-  }
   const unpaidInstallments = loans.reduce(
     (total, loan) =>
       total +
@@ -548,11 +571,11 @@ function App() {
   const isSuperAdmin = user?.systemRole === 'SUPER_ADMIN'
   const isFamilyAdmin = user?.familyRole === 'ADMIN'
   const isTreasurer = user?.familyRole === 'TREASURER'
-  const isMember = user?.systemRole === 'USER' && user?.familyRole === 'MEMBER'
   const canManageMembers = isSuperAdmin || isFamilyAdmin
-  const canManageLoans = isSuperAdmin || isFamilyAdmin || isTreasurer
-  const canRequestLoan = isMember
-  const canManageLedger = canManageLoans
+  const canManageLoans = !isSuperAdmin && isFamilyAdmin
+  const canRequestLoan =
+    user?.systemRole === 'USER' && loanPermissions.data?.canCreateLoan === true
+  const canManageLedger = !isSuperAdmin && (isFamilyAdmin || isTreasurer)
   const filteredFamilies = families.filter((family) =>
     `${family.name} ${family.code}`
       .toLowerCase()
@@ -673,6 +696,7 @@ function App() {
       onNavigate={navigate}
       onLogout={logout}
     >
+      <FamilySwitcher user={user} />
       <section className="intro">
         <div>
           <p className="date">
@@ -682,38 +706,46 @@ function App() {
             }).format(new Date())}
           </p>
           <h1>
-            {active === 'Panduan'
-              ? 'Panduan Dana Keluarga.'
-              : active === 'Pengaturan'
-                ? 'Pengaturan pemberitahuan.'
-                : active === 'Notifikasi'
-                  ? 'Pemberitahuan keluarga.'
-                  : active === 'Anggota'
-                    ? 'Kelola ruang bersama.'
-                    : active === 'Pinjaman'
-                      ? canManageLoans
-                        ? 'Kelola pinjaman.'
-                        : 'Pinjaman saya.'
-                      : active === 'Cicilan'
-                        ? 'Jadwal cicilan.'
-                        : `Halo, ${user.name}.`}
+            {active === 'Setup Hirarki'
+              ? 'Setup hirarki keluarga.'
+              : active === 'Persetujuan'
+                ? 'Persetujuan berurutan.'
+                : active === 'Panduan'
+                  ? 'Panduan Dana Keluarga.'
+                  : active === 'Pengaturan'
+                    ? 'Pengaturan pemberitahuan.'
+                    : active === 'Notifikasi'
+                      ? 'Pemberitahuan keluarga.'
+                      : active === 'Anggota'
+                        ? 'Kelola ruang bersama.'
+                        : active === 'Pinjaman'
+                          ? canManageLoans
+                            ? 'Kelola pinjaman.'
+                            : 'Pinjaman saya.'
+                          : active === 'Cicilan'
+                            ? 'Jadwal cicilan.'
+                            : `Halo, ${user.name}.`}
           </h1>
           <p>
-            {active === 'Panduan'
-              ? 'Kenali alur aplikasi dan langkah yang sesuai dengan peran Anda.'
-              : active === 'Pengaturan'
-                ? 'Kelola persetujuan WhatsApp dan periksa riwayat pemrosesan pesan.'
-                : active === 'Notifikasi'
-                  ? 'Baca kabar terbaru yang terkait dengan akun Anda.'
-                  : active === 'Anggota'
-                    ? 'Pastikan setiap orang memiliki akses dan peran yang tepat di keluarga ini.'
-                    : active === 'Pinjaman'
-                      ? canManageLoans
-                        ? 'Tinjau pengajuan dan kelola dana keluarga dengan tertib.'
-                        : 'Pantau pengajuan dan kewajiban pinjaman Anda.'
-                      : active === 'Cicilan'
-                        ? 'Lihat jadwal pembayaran berdasarkan pinjaman yang telah dicairkan.'
-                        : 'Pelan-pelan, yang penting bersama. Ini kabar terbaru ruang dana keluarga.'}
+            {active === 'Setup Hirarki'
+              ? 'Atur petugas dan urutan persetujuan untuk setiap keluarga.'
+              : active === 'Persetujuan'
+                ? 'Tinjau pengajuan pada tahap yang menjadi tanggung jawab Anda.'
+                : active === 'Panduan'
+                  ? 'Kenali alur aplikasi dan langkah yang sesuai dengan peran Anda.'
+                  : active === 'Pengaturan'
+                    ? 'Kelola persetujuan WhatsApp dan periksa riwayat pemrosesan pesan.'
+                    : active === 'Notifikasi'
+                      ? 'Baca kabar terbaru yang terkait dengan akun Anda.'
+                      : active === 'Anggota'
+                        ? 'Pastikan setiap orang memiliki akses dan peran yang tepat di keluarga ini.'
+                        : active === 'Pinjaman'
+                          ? canManageLoans
+                            ? 'Tinjau pengajuan dan kelola dana keluarga dengan tertib.'
+                            : 'Pantau pengajuan dan kewajiban pinjaman Anda.'
+                          : active === 'Cicilan'
+                            ? 'Lihat jadwal pembayaran berdasarkan pinjaman yang telah dicairkan.'
+                            : 'Pelan-pelan, yang penting bersama. Ini kabar terbaru ruang dana keluarga.'}
           </p>
         </div>
         {active === 'Anggota' && canManageMembers && (
@@ -727,6 +759,21 @@ function App() {
         <Feedback tone={notice.tone} floating onClose={() => setNotice(null)}>
           {notice.message}
         </Feedback>
+      )}
+      {active === 'Setup Hirarki' && (isSuperAdmin || isFamilyAdmin) && (
+        <HierarchySetup onDirtyChange={setHierarchyDirty} />
+      )}
+      {active === 'Setup Hirarki' && !isSuperAdmin && !isFamilyAdmin && (
+        <Feedback tone="warning">
+          Hanya Super Admin dan Admin keluarga yang dapat mengatur hirarki.
+        </Feedback>
+      )}
+      {active === 'Persetujuan' && !isSuperAdmin && (
+        <ApprovalInbox
+          requestId={approvalRequestId}
+          user={user}
+          onChanged={refreshFinancials}
+        />
       )}
       {active === 'Pinjaman' && (
         <section className="panel loan-list">
@@ -747,6 +794,16 @@ function App() {
               </button>
             )}
           </div>
+          {loanPermissions.error && (
+            <Feedback tone="error">{loanPermissions.error}</Feedback>
+          )}
+          {loanPermissions.data && !loanPermissions.data.canCreateLoan && (
+            <Feedback tone="info">
+              {!loanPermissions.data.configured
+                ? 'Hirarki pinjaman belum diatur. Hubungi Admin keluarga atau Super Admin untuk mengisi Setup Hirarki.'
+                : 'Pengajuan hanya tersedia untuk Maker yang tidak menjadi approver atau releaser dalam hirarki ini. Hubungi pengelola untuk penyesuaian petugas.'}
+            </Feedback>
+          )}
           {loansLoading ? (
             <p className="empty">Memuat data pinjaman...</p>
           ) : loansError ? (
@@ -777,40 +834,18 @@ function App() {
                 <span className={`status ${loan.status.toLowerCase()}`}>
                   {loanStatus[loan.status] ?? loan.status}
                 </span>
-                {canManageLoans && (
+                {['PENDING', 'APPROVED'].includes(loan.status) && (
                   <div className="loan-actions">
-                    {loan.status === 'PENDING' && (
-                      <>
-                        <button
-                          disabled={loading}
-                          onClick={() => updateLoan(loan.id, 'approve')}
-                        >
-                          Setujui
-                        </button>
-                        <button
-                          onClick={() => {
-                            setRejectLoanId(loan.id)
-                            setRejectionReason('')
-                          }}
-                        >
-                          Tolak
-                        </button>
-                      </>
-                    )}
-                    {loan.status === 'APPROVED' && (
+                    {loan.approvalRequest ? (
                       <button
-                        disabled={loading}
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              'Pastikan dana sudah ditransfer kepada peminjam. Catat pencairan dan mulai jadwal cicilan?',
-                            )
-                          )
-                            void updateLoan(loan.id, 'disburse')
-                        }}
+                        onClick={() => openApproval(loan.approvalRequest!.id)}
                       >
-                        Catat pencairan
+                        Lihat persetujuan
                       </button>
+                    ) : (
+                      <small>
+                        Pinjaman lama: perlu tinjauan migrasi oleh pengelola.
+                      </small>
                     )}
                   </div>
                 )}
@@ -822,6 +857,8 @@ function App() {
       {active === 'Notifikasi' && (
         <NotificationInbox
           key={user.id}
+          currentFamilyId={user.familyId}
+          onOpenApproval={openApproval}
           onUnreadChanged={unreadNotifications.refresh}
           onNavigate={navigate}
           onOpenInstallment={openPayment}
@@ -1356,39 +1393,6 @@ function App() {
           </ValidatedForm>
         </div>
       )}
-      {rejectLoanId && (
-        <div className="modal-backdrop">
-          <ValidatedForm className="modal" onSubmit={submitRejection}>
-            <button
-              type="button"
-              className="icon-button modal-close"
-              onClick={() => setRejectLoanId(null)}
-              aria-label="Tutup form"
-            >
-              <X size={18} />
-            </button>
-            <p className="eyebrow">KEPUTUSAN PENGAJUAN</p>
-            <h2>Tolak pinjaman</h2>
-            <p className="modal-intro">
-              Tuliskan alasan agar peminjam memahami keputusan ini.
-            </p>
-            <label>
-              Alasan penolakan
-              <textarea
-                required
-                minLength={3}
-                maxLength={240}
-                value={rejectionReason}
-                onChange={(event) => setRejectionReason(event.target.value)}
-                placeholder="Contoh: Nominal melebihi batas kas keluarga."
-              />
-            </label>
-            <button className="primary" disabled={loading}>
-              {loading ? 'Menyimpan...' : 'Konfirmasi penolakan'}
-            </button>
-          </ValidatedForm>
-        </div>
-      )}
       {memberFormOpen && (
         <div className="modal-backdrop">
           <ValidatedForm
@@ -1630,7 +1634,6 @@ function App() {
                   }
                 >
                   <option value="MEMBER">Anggota</option>
-                  <option value="TREASURER">Pengelola dana</option>
                   <option value="ADMIN">Admin keluarga</option>
                 </select>
               </label>

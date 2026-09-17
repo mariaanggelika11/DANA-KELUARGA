@@ -29,7 +29,7 @@ const guides: Guide[] = [
     description:
       'Pengajuan dilakukan melalui aplikasi dan diperiksa pengelola keluarga.',
     steps: [
-      'Anggota membuka Pinjaman, lalu memilih Ajukan pinjaman.',
+      'Anggota yang ditetapkan sebagai Maker membuka Pinjaman, lalu memilih Ajukan pinjaman.',
       'Isi nominal, tenor dalam bulan, dan tujuan. Periksa kembali sebelum mengirim.',
       'Status Menunggu persetujuan berarti pengajuan sedang ditinjau. Disetujui berarti masih menunggu pencairan.',
       'Jika ditolak, baca alasan yang diberikan. Jika sudah dicairkan, lihat jadwal pada menu Cicilan.',
@@ -83,14 +83,14 @@ const managerGuide: Guide = {
   description:
     'Pisahkan keputusan pengajuan, transfer dana, dan pencatatan pencairan.',
   steps: [
-    'Periksa nominal, tujuan, dan saldo kas sebelum menyetujui pengajuan.',
+    'Buka Persetujuan → Menunggu Saya. Hanya petugas pada tahap aktif yang dapat menyetujui, menolak, atau mengembalikan pengajuan.',
     'Gunakan Tolak dengan alasan yang jelas jika pengajuan belum dapat dipenuhi.',
-    'Setelah dana ditransfer di luar aplikasi, pilih Catat pencairan. Tindakan ini mencatat kas keluar dan membentuk jadwal cicilan.',
+    'Setelah semua approver menyetujui dan transfer dilakukan di luar aplikasi, Releaser yang berbeda memilih Catat pencairan. Jadwal cicilan baru dibentuk pada langkah ini.',
     'Cicilan pertama dijadwalkan sebulan setelah pencairan. Tanggal akhir bulan disesuaikan jika bulan berikutnya lebih pendek.',
     'Pantau cicilan Terlambat dan tindak lanjuti secara pribadi. Jangan membagikan rincian pinjaman ke pihak yang tidak berkepentingan.',
     'Admin keluarga dapat menambahkan anggota; bendahara menangani dana sesuai hak aksesnya.',
   ],
-  target: 'Pinjaman',
+  target: 'Persetujuan',
 }
 
 export function HelpGuide({
@@ -100,10 +100,34 @@ export function HelpGuide({
   user: SessionUser
   onNavigate: (page: AppPage) => void
 }) {
-  const manager =
-    user.systemRole === 'SUPER_ADMIN' ||
-    ['ADMIN', 'TREASURER'].includes(user.familyRole ?? '')
-  const visible = manager ? [...guides, managerGuide] : guides
+  const hierarchyGuide: Guide = {
+    id: 'hierarchy',
+    title: 'Mengatur hirarki approval',
+    description:
+      'Satu konfigurasi aktif per keluarga dengan urutan dan riwayat versi.',
+    steps: [
+      'Buka Setup Hirarki dan pilih keluarga yang ingin diatur. Super Admin dapat memilih seluruh keluarga; Admin hanya keluarganya sendiri.',
+      'Pilih Maker, tambahkan approver secara berurutan, misalnya Dani lalu Danang, dan pilih Releaser yang berbeda.',
+      'Seluruh petugas harus anggota aktif keluarga tersebut. Pembuat dan peminjam tidak boleh menjadi approver atau releaser pada pengajuan yang sama.',
+      'Isi alasan lalu simpan. Untuk dua approver diperlukan minimal empat orang berbeda: Maker, Dani, Danang, dan Releaser.',
+      'Perubahan berlaku untuk pengajuan baru. Pengajuan berjalan tetap menggunakan versi saat diajukan. Pinjaman lama tanpa snapshot memerlukan tinjauan migrasi.',
+      'Super Admin mengatur akses dan hirarki, tetapi tidak dapat menyetujui atau mencairkan pinjaman.',
+    ],
+    target: 'Setup Hirarki',
+  }
+  const visible =
+    user.systemRole === 'SUPER_ADMIN'
+      ? [
+          hierarchyGuide,
+          ...guides.filter((guide) =>
+            ['notifications', 'account'].includes(guide.id),
+          ),
+        ]
+      : [
+          ...guides,
+          managerGuide,
+          ...(user.familyRole === 'ADMIN' ? [hierarchyGuide] : []),
+        ]
   return (
     <section className="help-guide" aria-label="Panduan aplikasi Dana Keluarga">
       <div className="guide-welcome">

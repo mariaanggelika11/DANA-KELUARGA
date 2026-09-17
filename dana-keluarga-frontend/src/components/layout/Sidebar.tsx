@@ -1,5 +1,7 @@
 import {
   Bell,
+  GitBranch,
+  ListChecks,
   BookOpen,
   CalendarClock,
   ChevronRight,
@@ -37,6 +39,17 @@ export function Sidebar({
   unreadCount,
   onNavigate,
 }: Props) {
+  const items = [
+    ...mainItems.filter(
+      (item) => user.systemRole !== 'SUPER_ADMIN' || item.label === 'Anggota',
+    ),
+    ...(user.systemRole === 'SUPER_ADMIN' || user.familyRole === 'ADMIN'
+      ? [{ label: 'Setup Hirarki' as const, icon: GitBranch }]
+      : []),
+    ...(user.systemRole !== 'SUPER_ADMIN'
+      ? [{ label: 'Persetujuan' as const, icon: ListChecks }]
+      : []),
+  ]
   return (
     <>
       <div className="sidebar-family">
@@ -60,7 +73,7 @@ export function Sidebar({
       </div>
       <nav aria-label="Navigasi utama">
         <p className="sidebar-label">MENU UTAMA</p>
-        {mainItems.map(({ label, icon: Icon }) => (
+        {items.map(({ label, icon: Icon }) => (
           <button
             type="button"
             className={`nav-item${active === label ? ' active' : ''}`}

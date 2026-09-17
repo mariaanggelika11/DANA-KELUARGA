@@ -19,8 +19,12 @@ type Notification = {
   message: string
   isRead: boolean
   createdAt: string
-  metadata: { installmentId?: string; view?: string } | null
-  family: { name: string } | null
+  metadata: {
+    installmentId?: string
+    approvalRequestId?: string
+    view?: string
+  } | null
+  family: { id: string; name: string } | null
 }
 type Inbox = {
   items: Notification[]
@@ -29,9 +33,11 @@ type Inbox = {
   page: number
 }
 type Props = {
+  currentFamilyId?: string
   onUnreadChanged: () => void
   onNavigate: (page: AppPage) => void
   onOpenInstallment: (id: string) => void
+  onOpenApproval: (id: string) => void
 }
 const dateTime = new Intl.DateTimeFormat('id-ID', {
   dateStyle: 'medium',
@@ -40,6 +46,8 @@ const dateTime = new Intl.DateTimeFormat('id-ID', {
 })
 
 export function NotificationInbox({
+  currentFamilyId,
+  onOpenApproval,
   onUnreadChanged,
   onNavigate,
   onOpenInstallment,
@@ -110,14 +118,27 @@ export function NotificationInbox({
         onUnreadChanged()
       }
       if (openDetails && item) {
+        if (item.family && item.family.id !== currentFamilyId) {
+          setError(
+            `Pilih keluarga ${item.family.name} melalui pilihan Keluarga aktif sebelum membuka rincian ini.`,
+          )
+          return
+        }
+        if (item.metadata?.approvalRequestId) {
+          onOpenApproval(item.metadata.approvalRequestId)
+          return
+        }
         const id = item.metadata?.installmentId
         if (typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id))
           onOpenInstallment(id)
         else
           onNavigate(
-            item.type === 'PAYMENT_SUCCESS' || item.type === 'INSTALLMENT_DUE'
-              ? 'Cicilan'
-              : 'Pinjaman',
+            item.metadata?.view === 'approvals'
+              ? 'Persetujuan'
+              : item.type === 'PAYMENT_SUCCESS' ||
+                  item.type === 'INSTALLMENT_DUE'
+                ? 'Cicilan'
+                : 'Pinjaman',
           )
       } else {
         setSuccess(

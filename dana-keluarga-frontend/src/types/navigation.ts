@@ -7,6 +7,8 @@ export type AppPage =
   | 'Notifikasi'
   | 'Pengaturan'
   | 'Panduan'
+  | 'Setup Hirarki'
+  | 'Persetujuan'
 export type SessionUser = {
   id: string
   name: string
@@ -15,6 +17,7 @@ export type SessionUser = {
   systemRole: string
   familyRole?: string
   familyId?: string
+  families?: { id: string; name: string; role: string }[]
   familyName?: string
 }
 export function roleLabel(user: SessionUser) {
@@ -33,6 +36,8 @@ export const pageQueries: Record<AppPage, string> = {
   Notifikasi: 'notifications',
   Pengaturan: 'settings',
   Panduan: 'help',
+  'Setup Hirarki': 'hierarchy',
+  Persetujuan: 'approvals',
 }
 export function initialPage(): AppPage {
   const query = new URLSearchParams(window.location.search)
