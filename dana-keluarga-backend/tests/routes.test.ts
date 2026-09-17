@@ -9,8 +9,11 @@ const mocks = vi.hoisted(() => ({
     whatsAppMessage: { findMany: vi.fn(), count: vi.fn(), updateMany: vi.fn(), createMany: vi.fn() },
     notification: { create: vi.fn(), findMany: vi.fn(), count: vi.fn(), updateMany: vi.fn() },
     $transaction: vi.fn(), $queryRaw: vi.fn(),
-    family: { findUnique: vi.fn() }, familyMember: { findFirst: vi.fn(), findMany: vi.fn() },
+    family: { findUnique: vi.fn() }, familyMember: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
     loan: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
+    approvalPolicy: { findFirst: vi.fn() },
+    approvalRequest: { create: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn() },
+    approvalStep: { update: vi.fn() }, approvalAction: { findFirst: vi.fn(), create: vi.fn() }, auditLog: { create: vi.fn() },
     ledgerEntry: { groupBy: vi.fn(), create: vi.fn() },
   }, settle: vi.fn(),
 }));
@@ -26,6 +29,7 @@ let base: string;
 let role = 'MEMBER';
 let memberships = true;
 let active = true;
+let systemRole = 'USER';
 const token = () => jwt.sign({ sub: userId, familyId, familyRole: 'ADMIN', systemRole: 'SUPER_ADMIN' }, env.JWT_ACCESS_SECRET, { expiresIn: '1h' });
 async function request(path: string, method = 'GET', body?: unknown, authenticated = true) {
   return fetch(`${base}/api/v1${path}`, { method, headers: { 'Content-Type': 'application/json', ...(authenticated ? { Authorization: `Bearer ${token()}` } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -41,9 +45,9 @@ beforeAll(async () => {
 });
 afterAll(async () => { if (server) await new Promise<void>((resolve) => server.close(() => resolve())); });
 beforeEach(() => {
-  vi.resetAllMocks(); role = 'MEMBER'; memberships = true; active = true;
+  vi.resetAllMocks(); role = 'MEMBER'; memberships = true; active = true; systemRole = 'USER';
   env.NODE_ENV = 'test'; env.PAYMENT_PROVIDER = 'sandbox';
-  mocks.db.user.findUnique.mockImplementation(async () => ({ id: userId, isActive: active, systemRole: 'USER', memberships: memberships ? [{ familyId, role }] : [] }));
+  mocks.db.user.findUnique.mockImplementation(async () => ({ id: userId, isActive: active, systemRole, memberships: memberships ? [{ familyId, role }] : [] }));
   mocks.db.$transaction.mockImplementation(async (input) => typeof input === 'function' ? input(mocks.db) : Promise.all(input));
   mocks.db.whatsAppMessage.createMany.mockResolvedValue({ count: 1 });
   mocks.db.notification.findMany.mockResolvedValue([]);
@@ -118,6 +122,14 @@ describe('loan journey through HTTP routes', () => {
   const loanId = '00000000-0000-4000-8000-000000000004';
   const fixture = { id: loanId, familyId, borrowerId: userId, principalAmount: new Prisma.Decimal(3000000), tenorMonths: 6, purpose: 'Renovasi rumah', borrower: { id: userId, name: 'Rani', phone: '6281234567890' }, family: { name: 'Keluarga A' }, installments: [{ id: installmentId, principalAmount: new Prisma.Decimal(500000), dueDate: new Date('2026-10-12T09:00:00+07:00') }] };
   beforeEach(() => {
+    mocks.db.$queryRaw.mockResolvedValue([{ id: loanId }]);
+    mocks.db.approvalPolicy.findFirst.mockResolvedValue({ id: 'policy', assignments: [
+      { userId, permission: 'MAKER', sequence: 1 },
+      { userId: 'approver', permission: 'APPROVER', sequence: 1 },
+      { userId: 'releaser', permission: 'RELEASER', sequence: 2 },
+    ] });
+    mocks.db.approvalRequest.create.mockResolvedValue({ id: 'request' });
+    mocks.db.familyMember.count.mockResolvedValue(2);
     mocks.db.family.findUnique.mockResolvedValue({ id: familyId });
     mocks.db.familyMember.findFirst.mockResolvedValue({ id: userId, userId });
     mocks.db.familyMember.findMany.mockResolvedValue([]);
@@ -134,6 +146,8 @@ describe('loan journey through HTTP routes', () => {
     expect(mocks.db.$transaction).toHaveBeenCalledTimes(1);
     expect(mocks.db.loan.create).toHaveBeenCalledWith(expect.objectContaining({ include: { borrower: { select: { id: true, name: true, phone: true } } } }));
     expect(mocks.db.whatsAppMessage.createMany).toHaveBeenCalled();
+    expect(mocks.db.approvalRequest.create).toHaveBeenCalled();
+    expect(mocks.db.notification.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: 'approver' }) }));
   });
   it('rejects a second application after acquiring the member lock', async () => {
     mocks.db.loan.findFirst.mockResolvedValue({ id: loanId });
@@ -142,36 +156,37 @@ describe('loan journey through HTTP routes', () => {
     expect(mocks.db.$queryRaw).toHaveBeenCalled();
     expect(mocks.db.loan.create).not.toHaveBeenCalled();
   });
-  it('queues approval while leaving installment creation until disbursement', async () => {
-    role = 'ADMIN'; mocks.db.loan.findFirst.mockResolvedValue({ ...fixture, status: 'PENDING' });
-    const response = await request(`/loans/${loanId}/approve`, 'POST');
-    expect(response.status).toBe(200);
-    expect((await response.json()).message).toContain('menunggu pencairan');
-    expect(mocks.db.loanInstallment.createMany).not.toHaveBeenCalled();
-    expect(mocks.db.whatsAppMessage.createMany.mock.calls[0][0].data[0].kind).toBe('LOAN_APPROVED');
+  it('requires a configured hierarchy for new applications', async () => {
+    mocks.db.loan.findFirst.mockResolvedValue(null);
+    mocks.db.approvalPolicy.findFirst.mockResolvedValue(null);
+    const response = await request('/loans', 'POST', { amount: 3000000, tenorMonths: 6, purpose: 'Renovasi rumah' });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('WORKFLOW_NOT_CONFIGURED');
   });
-  it('queues a rejection in the same transaction as the decision', async () => {
-    role = 'ADMIN'; mocks.db.loan.findUniqueOrThrow.mockResolvedValue({ ...fixture, rejectionReason: 'Saldo belum cukup' });
-    const response = await request(`/loans/${loanId}/reject`, 'POST', { reason: 'Saldo belum cukup' });
-    expect(response.status).toBe(200);
-    expect(mocks.db.$transaction).toHaveBeenCalledTimes(1);
-    expect(mocks.db.whatsAppMessage.createMany.mock.calls[0][0].data[0].body).toContain('Saldo belum cukup');
-  });
-  it('creates six installments and one ledger entry only at disbursement', async () => {
-    role = 'TREASURER'; mocks.db.loan.findFirst.mockResolvedValue({ ...fixture, status: 'APPROVED' });
-    const response = await request(`/loans/${loanId}/disburse`, 'POST');
-    expect(response.status).toBe(200);
-    expect(mocks.db.loanInstallment.createMany.mock.calls[0][0].data).toHaveLength(6);
-    expect(mocks.db.ledgerEntry.create).toHaveBeenCalledTimes(1);
-    expect(mocks.db.whatsAppMessage.createMany.mock.calls[0][0].data[0].kind).toBe('LOAN_DISBURSED');
-  });
-  it('does not disburse when the locked balance is insufficient', async () => {
+  it('prevents old URLs from bypassing missing historical workflows', async () => {
     role = 'ADMIN'; mocks.db.loan.findFirst.mockResolvedValue({ ...fixture, status: 'APPROVED' });
-    mocks.db.ledgerEntry.groupBy.mockResolvedValue([]);
-    expect((await request(`/loans/${loanId}/disburse`, 'POST')).status).toBe(409);
+    for (const action of ['approve', 'reject', 'disburse']) {
+      const response = await request(`/loans/${loanId}/${action}`, 'POST', { reason: 'Tidak memenuhi syarat' });
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe('LEGACY_WORKFLOW_REQUIRED');
+    }
     expect(mocks.db.ledgerEntry.create).not.toHaveBeenCalled();
-    expect(mocks.db.whatsAppMessage.createMany).not.toHaveBeenCalled();
   });
+  it('blocks Super Admin financial operations even with family ADMIN membership', async () => {
+    role = 'ADMIN'; systemRole = 'SUPER_ADMIN';
+    for (const path of ['/loans', `/loans/${loanId}/approve`, `/payments/${installmentId}/simulate-success`, '/ledger']) {
+      expect((await request(path, 'POST', { amount: 3000000, tenorMonths: 6, purpose: 'Renovasi rumah' })).status).toBe(403);
+    }
+    expect(mocks.db.ledgerEntry.create).not.toHaveBeenCalled();
+    expect(mocks.settle).not.toHaveBeenCalled();
+  });
+  it('rejects hierarchy writes by ordinary members and malformed configuration', async () => {
+    const input = { expectedVersion: 0, makerIds: [userId], approverIds: [installmentId], releaserId: loanId, reason: 'Penetapan awal' };
+    mocks.db.familyMember.findUnique.mockResolvedValue({ status: 'ACTIVE', role: 'MEMBER' });
+    expect((await request(`/approval-policies/families/${familyId}`, 'PUT', input)).status).toBe(403);
+    expect((await request(`/approval-policies/families/${familyId}`, 'PUT', { ...input, approverIds: [] })).status).toBe(400);
+  });
+
 });
 
 
@@ -200,5 +215,39 @@ describe('personal notification inbox API', () => {
     expect((await request('/notifications/inbox?unread=maybe')).status).toBe(400);
     expect((await request('/notifications/inbox/not-an-id/read', 'PATCH')).status).toBe(400);
     expect(mocks.db.notification.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('explicit active-family context', () => {
+  it('issues a token only for an active membership and keeps its role', async () => {
+    mocks.db.user.findUnique.mockResolvedValue({ id: userId, name: 'Anggota', isActive: true, systemRole: 'USER', memberships: [{ familyId, role: 'MEMBER', family: { name: 'Keluarga A' } }] });
+    const response = await request('/auth/active-family', 'POST', { familyId });
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(jwt.verify(payload.data.accessToken, env.JWT_ACCESS_SECRET)).toMatchObject({ familyId, familyRole: 'MEMBER', systemRole: 'USER' });
+    expect(payload.data.user.families).toEqual([{ id: familyId, role: 'MEMBER', name: 'Keluarga A' }]);
+  });
+  it('rejects a switch to another family without active membership', async () => {
+    mocks.db.user.findUnique.mockResolvedValue({ id: userId, name: 'Anggota', isActive: true, systemRole: 'USER', memberships: [{ familyId, role: 'MEMBER', family: { name: 'Keluarga A' } }] });
+    expect((await request('/auth/active-family', 'POST', { familyId: installmentId })).status).toBe(403);
+  });
+});
+
+
+describe('loan submission permission lookup', () => {
+  it('requires a configured maker assignment without a decision-role conflict', async () => {
+    for (const [policy, configured, canCreateLoan] of [
+      [null, false, false],
+      [{ assignments: [{ permission: 'MAKER' }] }, true, true],
+      [{ assignments: [{ permission: 'MAKER' }, { permission: 'APPROVER' }] }, true, false],
+      [{ assignments: [] }, true, false],
+    ] as const) {
+      mocks.db.approvalPolicy.findFirst.mockResolvedValue(policy);
+      const response = await request('/approvals/permissions');
+      expect(response.status).toBe(200);
+      expect((await response.json()).data).toEqual({ configured, canCreateLoan });
+      expect(mocks.db.approvalPolicy.findFirst).toHaveBeenLastCalledWith(expect.objectContaining({ where: { familyId, transactionType: 'LOAN', active: true } }));
+    }
   });
 });

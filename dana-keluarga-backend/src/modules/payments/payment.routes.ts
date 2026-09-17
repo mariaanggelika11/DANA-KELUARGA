@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { prisma } from '../../config/prisma';
 import { env } from '../../config/env';
 import { requireAuth, requireRole, type AuthRequest } from '../../middleware/auth';
+import { requireOperationalActor } from '../approvals/approval.rules';
 import { settleSandboxPayment } from './payment.service';
 
 export const paymentRouter = Router();
@@ -12,7 +13,7 @@ const simulationAvailable = () => env.NODE_ENV !== 'production' && env.PAYMENT_P
 
 // No unauthenticated callback may mark a payment as paid in this simulation release.
 paymentRouter.post('/webhooks/:provider', (_req, res) => res.status(503).json({ success: false, error: { code: 'PROVIDER_NOT_CONFIGURED', message: 'Integrasi dan verifikasi callback payment gateway belum diaktifkan' } }));
-paymentRouter.use(requireAuth);
+paymentRouter.use(requireAuth, (req: AuthRequest, _res, next) => { requireOperationalActor(req.auth!, req.auth!.familyId ?? ''); next(); });
 
 paymentRouter.get('/installments/:id', async (req: AuthRequest, res) => {
   const installment = await prisma.loanInstallment.findFirst({ where: { id: String(req.params.id), loan: scope(req) }, include: { loan: { select: { id: true, purpose: true, status: true, borrower: { select: { name: true } } } }, payments: { orderBy: { createdAt: 'desc' }, select: { id: true, amount: true, status: true, provider: true, expiresAt: true, paidAt: true, createdAt: true } } } });

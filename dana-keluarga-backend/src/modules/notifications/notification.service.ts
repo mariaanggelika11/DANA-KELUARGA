@@ -85,6 +85,7 @@ export async function queueLoanEvent(
   tx: Tx,
   loanId: string,
   kind: 'LOAN_REQUESTED' | 'LOAN_APPROVED' | 'LOAN_REJECTED' | 'LOAN_DISBURSED',
+  notifyManagers = true,
 ) {
   const loan = await tx.loan.findUniqueOrThrow({
     where: { id: loanId },
@@ -113,7 +114,7 @@ export async function queueLoanEvent(
     kind,
     body,
   });
-  if (kind === 'LOAN_REQUESTED') {
+  if (kind === 'LOAN_REQUESTED' && notifyManagers) {
     const managers = await tx.familyMember.findMany({
       where: {
         familyId: loan.familyId,

@@ -7,7 +7,7 @@ import { requireAuth, type AuthRequest } from '../../middleware/auth';
 import { requireSystemRole } from '../../middleware/roles';
 import { normalizeIndonesianPhone } from '../../utils/phone';
 
-const personSchema = z.object({ name: z.string().trim().min(2).max(120), email: z.string().email().optional(), phone: z.string().min(8).max(20), password: z.string().min(8), role: z.enum(['ADMIN', 'MEMBER', 'TREASURER']).default('MEMBER'), familyId: z.string().uuid().optional() });
+const personSchema = z.object({ name: z.string().trim().min(2).max(120), email: z.string().email().optional(), phone: z.string().min(8).max(20), password: z.string().min(8), role: z.enum(['ADMIN', 'MEMBER']).default('MEMBER'), familyId: z.string().uuid().optional() });
 const memberSchema = personSchema.extend({ existingUserId: z.string().uuid().optional() });
 const familySchema = z.object({ name: z.string().trim().min(2).max(120), code: z.string().trim().min(3).max(30).regex(/^[A-Z0-9-]+$/), description: z.string().trim().max(240).optional(), admin: personSchema.omit({ role: true }) });
 

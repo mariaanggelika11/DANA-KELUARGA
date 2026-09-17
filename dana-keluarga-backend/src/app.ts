@@ -1,4 +1,7 @@
 import express from 'express';
+import { ZodError } from 'zod';
+import { WorkflowError } from './modules/approvals/approval.rules';
+import { approvalPolicyRouter, approvalRouter } from './modules/approvals/approval.routes';
 import { Prisma } from '@prisma/client';
 import { notificationRouter } from './modules/notifications/notification.routes';
 import cors from 'cors';
@@ -22,6 +25,8 @@ app.use(express.json());
 app.use('/api/v1/dashboard', dashboardRouter);
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/loans', loanRouter);
+app.use('/api/v1/approval-policies', approvalPolicyRouter);
+app.use('/api/v1/approvals', approvalRouter);
 app.use('/api/v1/management', managementRouter);
 app.use('/api/v1/management/registrations', registrationRouter);
 app.use('/api/v1/payments', paymentRouter);
@@ -34,6 +39,8 @@ app.get('/ready', async (_req, res) => {
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (error instanceof WorkflowError) return res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
+  if (error instanceof ZodError) return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: error.issues.map((item) => item.message).join('; ') } });
   const code = error instanceof Error ? error.message : '';
   const conflicts: Record<string, string> = {
     LOAN_ALREADY_EXISTS: 'Masih ada pengajuan atau pinjaman aktif untuk anggota ini.',

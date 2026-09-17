@@ -34,3 +34,6 @@ pnpm-debug.log*
 *.suo
 *.swp
 *.swo
+
+# Private local migration backups (may contain sensitive data)
+.local-backups/

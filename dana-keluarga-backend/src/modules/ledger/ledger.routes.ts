@@ -14,7 +14,7 @@ const entrySchema = z.object({
 export const ledgerRouter = Router();
 
 function canManageLedger(req: AuthRequest) {
-  return req.auth?.systemRole === 'SUPER_ADMIN' || req.auth?.familyRole === 'ADMIN' || req.auth?.familyRole === 'TREASURER';
+  return req.auth?.systemRole !== 'SUPER_ADMIN' && (req.auth?.familyRole === 'ADMIN' || req.auth?.familyRole === 'TREASURER');
 }
 
 ledgerRouter.get('/', requireAuth, async (req: AuthRequest, res) => {

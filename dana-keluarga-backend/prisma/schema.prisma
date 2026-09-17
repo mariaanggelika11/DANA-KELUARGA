@@ -95,6 +95,11 @@ model User {
   whatsappMessages WhatsAppMessage[]
   auditLogs AuditLog[]
   refreshTokens RefreshToken[]
+  createdApprovalPolicies ApprovalPolicy[] @relation("PolicyCreator")
+  approvalAssignments ApprovalAssignment[]
+  approvalRequests ApprovalRequest[] @relation("RequestMaker")
+  approvalSteps ApprovalStep[]
+  approvalActions ApprovalAction[]
 }
 
 model Family {
@@ -114,6 +119,8 @@ model Family {
   notifications Notification[]
   whatsappMessages WhatsAppMessage[]
   auditLogs AuditLog[]
+  approvalPolicies ApprovalPolicy[]
+  approvalRequests ApprovalRequest[]
 }
 
 model FamilyMember {
@@ -171,6 +178,8 @@ model Loan {
   rejectedBy User? @relation("RejectedLoans", fields: [rejectedById], references: [id])
   installments LoanInstallment[]
   payments Payment[]
+  approvalRequestId String? @unique @db.Uuid
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id])
   @@index([familyId, status])
   @@index([borrowerId])
 }
@@ -307,4 +316,130 @@ model WhatsAppMessage {
   @@index([status, nextAttemptAt])
   @@index([familyId, createdAt])
   @@index([installmentId, kind, status])
+}
+
+enum WorkflowPermission {
+  MAKER
+  APPROVER
+  RELEASER
+}
+
+enum ApprovalTransactionType {
+  LOAN
+  SAVINGS_WITHDRAWAL
+  DEPOSIT_VERIFICATION
+}
+
+enum ApprovalRequestStatus {
+  PENDING_APPROVAL
+  PENDING_RELEASE
+  RELEASED
+  REJECTED
+  RETURNED
+  CANCELLED
+}
+
+enum ApprovalStepStatus {
+  WAITING
+  APPROVED
+  REJECTED
+  RETURNED
+  RELEASED
+}
+
+enum ApprovalActionType {
+  SUBMIT
+  APPROVE
+  REJECT
+  RETURN
+  RELEASE
+  CANCEL
+}
+
+model ApprovalPolicy {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  familyId               String                  @db.Uuid
+  transactionType        ApprovalTransactionType @default(LOAN)
+  version                Int
+  active                 Boolean                 @default(true)
+  distinctActorsRequired Boolean                 @default(true)
+  createdById            String                  @db.Uuid
+  reason                 String
+  createdAt              DateTime                @default(now())
+  family                 Family                  @relation(fields: [familyId], references: [id])
+  createdBy              User                    @relation("PolicyCreator", fields: [createdById], references: [id])
+  assignments            ApprovalAssignment[]
+  requests               ApprovalRequest[]
+
+  @@unique([familyId, transactionType, version])
+  @@index([familyId, transactionType, active])
+}
+
+model ApprovalAssignment {
+  id         String             @id @default(uuid()) @db.Uuid
+  policyId   String             @db.Uuid
+  userId     String             @db.Uuid
+  permission WorkflowPermission
+  sequence   Int
+  policy     ApprovalPolicy     @relation(fields: [policyId], references: [id])
+  user       User               @relation(fields: [userId], references: [id])
+
+  @@unique([policyId, permission, sequence])
+  @@unique([policyId, permission, userId])
+  @@index([userId, permission])
+}
+
+model ApprovalRequest {
+  id              String                  @id @default(uuid()) @db.Uuid
+  familyId        String                  @db.Uuid
+  policyId        String                  @db.Uuid
+  transactionType ApprovalTransactionType @default(LOAN)
+  referenceId     String                  @db.Uuid
+  makerId         String                  @db.Uuid
+  amount          Decimal                 @db.Decimal(18, 2)
+  status          ApprovalRequestStatus   @default(PENDING_APPROVAL)
+  currentStep     Int                     @default(1)
+  submittedAt     DateTime                @default(now())
+  completedAt     DateTime?
+  updatedAt       DateTime                @updatedAt
+  family          Family                  @relation(fields: [familyId], references: [id])
+  policy          ApprovalPolicy          @relation(fields: [policyId], references: [id])
+  maker           User                    @relation("RequestMaker", fields: [makerId], references: [id])
+  steps           ApprovalStep[]
+  actions         ApprovalAction[]
+  loan            Loan?
+
+  @@unique([transactionType, referenceId])
+  @@index([familyId, status, submittedAt])
+  @@index([makerId, status])
+}
+
+model ApprovalStep {
+  id             String             @id @default(uuid()) @db.Uuid
+  requestId      String             @db.Uuid
+  sequence       Int
+  permission     WorkflowPermission
+  assignedUserId String             @db.Uuid
+  status         ApprovalStepStatus @default(WAITING)
+  actedAt        DateTime?
+  request        ApprovalRequest    @relation(fields: [requestId], references: [id])
+  assignedUser   User               @relation(fields: [assignedUserId], references: [id])
+
+  @@unique([requestId, sequence])
+  @@index([assignedUserId, status])
+}
+
+model ApprovalAction {
+  id        String             @id @default(uuid()) @db.Uuid
+  requestId String             @db.Uuid
+  step      Int
+  actorId   String             @db.Uuid
+  action    ApprovalActionType
+  notes     String?
+  actedAt   DateTime           @default(now())
+  request   ApprovalRequest    @relation(fields: [requestId], references: [id])
+  actor     User               @relation(fields: [actorId], references: [id])
+
+  @@unique([requestId, step, action])
+  @@index([actorId, actedAt])
 }

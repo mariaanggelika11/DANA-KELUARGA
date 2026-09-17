@@ -9,7 +9,7 @@ import { normalizeIndonesianPhone } from '../../utils/phone';
 
 const base = z.object({
   type: z.enum(['NEW_FAMILY', 'NEW_MEMBER', 'EXISTING_MEMBER']),
-  role: z.enum(['ADMIN', 'TREASURER', 'MEMBER']).default('MEMBER'),
+  role: z.enum(['ADMIN', 'MEMBER']).default('MEMBER'),
   familyId: z.string().uuid().optional(),
   existingUserId: z.string().uuid().optional(),
   name: z.string().trim().min(2).max(120).optional(),
