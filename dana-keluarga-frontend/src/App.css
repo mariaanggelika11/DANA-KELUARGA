@@ -559,7 +559,7 @@
 }
 .currency-input:focus-within {
   border-color: var(--coral);
-  box-shadow: 0 0 0 2px #e8755c18;
+  box-shadow: 0 0 0 1px #e8755c18;
 }
 .currency-input input:focus {
   outline: 0 !important;
@@ -822,11 +822,11 @@
 .modal select:focus {
   outline: 0;
   border-color: #2563eb;
-  box-shadow: 0 0 0 2px #2563eb2e;
+  box-shadow: 0 0 0 1px #2563eb20;
 }
 .modal .currency-input:focus-within {
   border-color: #2563eb;
-  box-shadow: 0 0 0 2px #2563eb2e;
+  box-shadow: 0 0 0 1px #2563eb20;
 }
 .modal .currency-input input:focus {
   border-color: transparent;

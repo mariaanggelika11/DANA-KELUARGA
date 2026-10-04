@@ -72,8 +72,8 @@
   border-radius: 9px;
 }
 .guide-topic summary:focus-visible {
-  outline: 3px solid #3276b4;
-  outline-offset: 2px;
+  outline: 1px solid #3276b4;
+  outline-offset: 1px;
 }
 .guide-topic-content {
   padding: 0 22px 22px;

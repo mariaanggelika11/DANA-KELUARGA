@@ -1,49 +1,45 @@
-import { useEffect, useState } from 'react'
-import {
-  Bell,
-  BellOff,
-  Check,
-  CheckCheck,
-  ChevronRight,
-  RefreshCw,
-} from 'lucide-react'
-import { api } from '../../lib/api-client'
-import { Feedback } from '../Feedback'
-import type { AppPage } from '../../types/navigation'
-import './Notifications.css'
+import { LoadingState } from "../LoadingState";
+import { RefreshButton } from "../RefreshButton";
+import { Pagination } from "../Pagination";
+import { useEffect, useState } from "react";
+import { Bell, BellOff, Check, CheckCheck, ChevronRight } from "lucide-react";
+import { api } from "../../lib/api-client";
+import { Feedback } from "../Feedback";
+import type { AppPage } from "../../types/navigation";
+import "./Notifications.css";
 
 type Notification = {
-  id: string
-  type: string
-  title: string
-  message: string
-  isRead: boolean
-  createdAt: string
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
   metadata: {
-    installmentId?: string
-    approvalRequestId?: string
-    view?: string
-  } | null
-  family: { id: string; name: string } | null
-}
+    installmentId?: string;
+    approvalRequestId?: string;
+    view?: string;
+  } | null;
+  family: { id: string; name: string } | null;
+};
 type Inbox = {
-  items: Notification[]
-  total: number
-  unreadCount: number
-  page: number
-}
+  items: Notification[];
+  total: number;
+  unreadCount: number;
+  page: number;
+};
 type Props = {
-  currentFamilyId?: string
-  onUnreadChanged: () => void
-  onNavigate: (page: AppPage) => void
-  onOpenInstallment: (id: string) => void
-  onOpenApproval: (id: string) => void
-}
-const dateTime = new Intl.DateTimeFormat('id-ID', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-  timeZone: 'Asia/Jakarta',
-})
+  currentFamilyId?: string;
+  onUnreadChanged: () => void;
+  onNavigate: (page: AppPage) => void;
+  onOpenInstallment: (id: string) => void;
+  onOpenApproval: (id: string) => void;
+};
+const dateTime = new Intl.DateTimeFormat("id-ID", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Jakarta",
+});
 
 export function NotificationInbox({
   currentFamilyId,
@@ -52,109 +48,111 @@ export function NotificationInbox({
   onNavigate,
   onOpenInstallment,
 }: Props) {
-  const [data, setData] = useState<Inbox | null>(null)
-  const [page, setPage] = useState(1)
-  const [unreadOnly, setUnreadOnly] = useState(false)
-  const [revision, setRevision] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
+  const [data, setData] = useState<Inbox | null>(null);
+  const [page, setPage] = useState(1);
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   useEffect(() => {
-    const controller = new AbortController()
-    let inFlight = false
+    const controller = new AbortController();
+    let inFlight = false;
     async function load() {
-      if (inFlight || document.hidden) return
-      inFlight = true
+      if (inFlight || document.hidden) return;
+      inFlight = true;
       try {
         const result = await api<{ data: Inbox }>(
           `/notifications/inbox?page=${page}&unread=${unreadOnly}`,
           { signal: controller.signal },
-        )
+        );
         if (!controller.signal.aborted) {
-          setData(result.data)
-          setError('')
+          setData(result.data);
+          setError("");
         }
       } catch (err) {
         if (!controller.signal.aborted)
           setError(
             err instanceof Error
               ? err.message
-              : 'Notifikasi belum dapat dimuat',
-          )
+              : "Notifikasi belum dapat dimuat",
+          );
       } finally {
-        inFlight = false
-        if (!controller.signal.aborted) setLoading(false)
+        inFlight = false;
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
-    void load()
-    const timer = window.setInterval(load, 30000)
-    document.addEventListener('visibilitychange', load)
+    void load();
+    const timer = window.setInterval(load, 30000);
+    document.addEventListener("visibilitychange", load);
     return () => {
-      controller.abort()
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', load)
-    }
-  }, [page, unreadOnly, revision])
+      controller.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", load);
+    };
+  }, [page, unreadOnly, revision]);
   function refresh() {
-    setLoading(true)
-    setError('')
-    setRevision((value) => value + 1)
-    onUnreadChanged()
+    setLoading(true);
+    setError("");
+    setRevision((value) => value + 1);
+    onUnreadChanged();
   }
   async function markRead(item?: Notification, openDetails = false) {
-    if (busy) return
-    setBusy(true)
-    setError('')
-    setSuccess('')
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setSuccess("");
     try {
       if (!item || !item.isRead) {
         await api(
           item
             ? `/notifications/inbox/${item.id}/read`
-            : '/notifications/inbox/read-all',
-          { method: 'PATCH' },
-        )
-        onUnreadChanged()
+            : "/notifications/inbox/read-all",
+          { method: "PATCH" },
+        );
+        onUnreadChanged();
       }
       if (openDetails && item) {
         if (item.family && item.family.id !== currentFamilyId) {
           setError(
             `Pilih keluarga ${item.family.name} melalui pilihan Keluarga aktif sebelum membuka rincian ini.`,
-          )
-          return
+          );
+          return;
         }
         if (item.metadata?.approvalRequestId) {
-          onOpenApproval(item.metadata.approvalRequestId)
-          return
+          onOpenApproval(item.metadata.approvalRequestId);
+          return;
         }
-        const id = item.metadata?.installmentId
-        if (typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id))
-          onOpenInstallment(id)
+        const id = item.metadata?.installmentId;
+        if (typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id))
+          onOpenInstallment(id);
         else
           onNavigate(
-            item.metadata?.view === 'approvals'
-              ? 'Persetujuan'
-              : item.type === 'PAYMENT_SUCCESS' ||
-                  item.type === 'INSTALLMENT_DUE'
-                ? 'Cicilan'
-                : 'Pinjaman',
-          )
+            item.metadata?.view === "cash"
+              ? "Kas"
+              : item.metadata?.view === "approvals"
+                ? "Persetujuan"
+                : item.type === "PAYMENT_SUCCESS" ||
+                    item.type === "INSTALLMENT_DUE"
+                  ? "Cicilan"
+                  : "Pinjaman",
+          );
       } else {
         setSuccess(
           item
-            ? 'Notifikasi ditandai sudah dibaca.'
-            : 'Semua notifikasi ditandai sudah dibaca.',
-        )
-        setPage(1)
-        setRevision((value) => value + 1)
+            ? "Notifikasi ditandai sudah dibaca."
+            : "Semua notifikasi ditandai sudah dibaca.",
+        );
+        setPage(1);
+        setRevision((value) => value + 1);
       }
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Status baca belum dapat disimpan',
-      )
+        err instanceof Error ? err.message : "Status baca belum dapat disimpan",
+      );
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
   return (
@@ -171,15 +169,15 @@ export function NotificationInbox({
             melewatkan kabar penting.
           </p>
         </div>
-        <button
+        <RefreshButton
+          loading={loading}
           type="button"
           className="secondary-button"
           disabled={loading || busy}
           onClick={refresh}
         >
-          <RefreshCw size={16} aria-hidden="true" />
           Perbarui
-        </button>
+        </RefreshButton>
       </div>
       <div className="inbox-toolbar">
         <div
@@ -188,8 +186,8 @@ export function NotificationInbox({
           aria-label="Filter notifikasi"
         >
           {[
-            { label: 'Semua', unread: false },
-            { label: 'Belum dibaca', unread: true },
+            { label: "Semua", unread: false },
+            { label: "Belum dibaca", unread: true },
           ].map((filter) => (
             <button
               type="button"
@@ -197,11 +195,11 @@ export function NotificationInbox({
               aria-pressed={unreadOnly === filter.unread}
               disabled={busy}
               onClick={() => {
-                setUnreadOnly(filter.unread)
-                setPage(1)
-                setLoading(true)
-                setRevision((value) => value + 1)
-                setSuccess('')
+                setUnreadOnly(filter.unread);
+                setPage(1);
+                setLoading(true);
+                setRevision((value) => value + 1);
+                setSuccess("");
               }}
             >
               {filter.label}
@@ -221,14 +219,12 @@ export function NotificationInbox({
       </div>
       {error && <Feedback tone="error">{error}</Feedback>}
       {success && (
-        <Feedback tone="success" onClose={() => setSuccess('')}>
+        <Feedback tone="success" onClose={() => setSuccess("")}>
           {success}
         </Feedback>
       )}
       {loading ? (
-        <p className="empty" role="status">
-          Memuat pemberitahuan...
-        </p>
+        <LoadingState label="Memuat pemberitahuan..." />
       ) : (
         data && (
           <>
@@ -237,15 +233,15 @@ export function NotificationInbox({
                 <BellOff size={34} aria-hidden="true" />
                 <h3>
                   {unreadOnly
-                    ? 'Semua sudah terbaca'
+                    ? "Semua sudah terbaca"
                     : page > 1
-                      ? 'Tidak ada notifikasi pada halaman ini'
-                      : 'Belum ada pemberitahuan'}
+                      ? "Tidak ada notifikasi pada halaman ini"
+                      : "Belum ada pemberitahuan"}
                 </h3>
                 <p>
                   {unreadOnly
-                    ? 'Pilih Semua untuk melihat kembali riwayat pemberitahuan.'
-                    : 'Kabar baru akan muncul di sini setelah ada aktivitas terkait akun Anda.'}
+                    ? "Pilih Semua untuk melihat kembali riwayat pemberitahuan."
+                    : "Kabar baru akan muncul di sini setelah ada aktivitas terkait akun Anda."}
                 </p>
               </div>
             ) : (
@@ -253,7 +249,7 @@ export function NotificationInbox({
                 {data.items.map((item) => (
                   <li
                     key={item.id}
-                    className={`inbox-item${item.isRead ? '' : ' unread'}`}
+                    className={`inbox-item${item.isRead ? "" : " unread"}`}
                   >
                     <span className="inbox-item-icon">
                       <Bell size={18} aria-hidden="true" />
@@ -266,10 +262,10 @@ export function NotificationInbox({
                         )}
                       </div>
                       <p>
-                        {item.message.replace(/https?:\/\/\S+/g, '').trim()}
+                        {item.message.replace(/https?:\/\/\S+/g, "").trim()}
                       </p>
                       <div className="inbox-item-meta">
-                        <span>{item.family?.name ?? 'Dana Keluarga'}</span>
+                        <span>{item.family?.name ?? "Dana Keluarga"}</span>
                         <time dateTime={item.createdAt}>
                           {dateTime.format(new Date(item.createdAt))} WIB
                         </time>
@@ -299,36 +295,19 @@ export function NotificationInbox({
                 ))}
               </ul>
             )}
-            <div className="inbox-pagination">
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={page === 1 || busy}
-                onClick={() => {
-                  setPage((value) => value - 1)
-                  setLoading(true)
-                }}
-              >
-                Sebelumnya
-              </button>
-              <span>
-                Halaman {page} · {data.total} pemberitahuan
-              </span>
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={page * 20 >= data.total || busy}
-                onClick={() => {
-                  setPage((value) => value + 1)
-                  setLoading(true)
-                }}
-              >
-                Berikutnya
-              </button>
-            </div>
+            <Pagination
+              page={page}
+              total={data.total}
+              pageSize={20}
+              disabled={busy || loading}
+              onChange={(next) => {
+                setPage(next);
+                setLoading(true);
+              }}
+            />
           </>
         )
       )}
     </section>
-  )
+  );
 }

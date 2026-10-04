@@ -1,617 +1,641 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { FundTransactionDialog } from "./features/cash/FundTransactionDialog";
+import { LoadingState } from "./components/LoadingState";
+import { EditMemberRole } from "./features/members/EditMemberRole";
+import { SearchableSelect } from "./components/SearchableSelect";
+import { FamilyCash } from "./features/cash/FamilyCash";
+import { CurrencyInput } from "./components/CurrencyInput";
+import { currencyError } from "./lib/currency";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ChevronDown,
+  Pencil,
   Users,
   HandCoins,
   ArrowUpRight,
   ArrowDownRight,
-  X,
   UserPlus,
   ShieldCheck,
   WalletCards,
-} from 'lucide-react'
-import './App.css'
-import { HierarchySetup } from './features/approvals/HierarchySetup'
-import { ApprovalInbox } from './features/approvals/ApprovalInbox'
-import { Feedback } from './components/Feedback'
-import { PasswordInput } from './components/PasswordInput'
-import { ValidatedForm } from './components/ValidatedForm'
-import { LoaderCircle, LogIn } from 'lucide-react'
-import { WhatsAppSettings } from './components/WhatsAppSettings'
-import { NotificationInbox } from './components/notifications/NotificationInbox'
-import { FamilySwitcher } from './components/layout/FamilySwitcher'
-import { AppShell } from './components/layout/AppShell'
-import { HelpGuide } from './components/HelpGuide'
-import { useLoanPermissions } from './hooks/useLoanPermissions'
-import { useUnreadNotifications } from './hooks/useUnreadNotifications'
+} from "lucide-react";
+import "./App.css";
+import { HierarchySetup } from "./features/approvals/HierarchySetup";
+import { ApprovalInbox } from "./features/approvals/ApprovalInbox";
+import { Feedback } from "./components/Feedback";
+import { PasswordInput } from "./components/PasswordInput";
+import { ValidatedForm } from "./components/ValidatedForm";
+import { LoaderCircle, LogIn } from "lucide-react";
+import { EmailSettings } from "./components/EmailSettings";
+import { NotificationInbox } from "./components/notifications/NotificationInbox";
+import { Modal } from "./components/Modal";
+import { RegistrationDialog } from "./features/members/RegistrationDialog";
+import { useConfirmation } from "./hooks/useConfirmation";
+import { FamilySwitcher } from "./components/layout/FamilySwitcher";
+import { AppShell } from "./components/layout/AppShell";
+import { HelpGuide } from "./components/HelpGuide";
+import { useLoanPermissions } from "./hooks/useLoanPermissions";
+import { useUnreadNotifications } from "./hooks/useUnreadNotifications";
 import {
   initialPage,
   pageQueries,
   type AppPage,
   type SessionUser,
-} from './types/navigation'
-import { InstallmentPayment } from './components/InstallmentPayment'
-import { api } from './lib/api-client'
+} from "./types/navigation";
+import { InstallmentPayment } from "./components/InstallmentPayment";
+import { rupiah, date } from "./lib/format";
+import { api, ApiError } from "./lib/api-client";
 
-const number = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 })
-const rupiah = (value: string | number) =>
-  `Rp ${number.format(Number(value) || 0)}`
-const rupiahInput = (value: string) =>
-  value ? number.format(Number(value)) : ''
-const date = new Intl.DateTimeFormat('id-ID', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-})
 const loanStatus: Record<string, string> = {
-  PENDING: 'Menunggu persetujuan',
-  APPROVED: 'Disetujui, menunggu pencairan',
-  ACTIVE: 'Berjalan',
-  REJECTED: 'Ditolak',
-  PAID_OFF: 'Lunas',
-  CANCELLED: 'Dibatalkan',
-}
+  PENDING: "Menunggu persetujuan",
+  APPROVED: "Disetujui, menunggu pencairan",
+  ACTIVE: "Berjalan",
+  REJECTED: "Ditolak",
+  PAID_OFF: "Lunas",
+  CANCELLED: "Dibatalkan",
+};
 const installmentStatus: Record<string, string> = {
-  UNPAID: 'Belum dibayar',
-  PARTIAL: 'Sebagian dibayar',
-  PAID: 'Lunas',
-  OVERDUE: 'Terlambat',
-}
-const temporaryPassword = () => {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
-  const values = new Uint32Array(12)
-  crypto.getRandomValues(values)
-  return Array.from(values, (value) => alphabet[value % alphabet.length]).join(
-    '',
-  )
-}
+  UNPAID: "Belum dibayar",
+  PARTIAL: "Sebagian dibayar",
+  PAID: "Lunas",
+  OVERDUE: "Terlambat",
+};
 type Summary = {
-  balance: number
-  loans: number
-  installments: number
-  members: number
-}
+  balance: string;
+  loans: string;
+  installments: string;
+  members: number;
+};
 type Activity = {
-  id: string
-  title: string
-  detail: string
-  amount: string | number
-  direction: 'IN' | 'OUT'
-  createdBy?: { name: string }
-}
+  id: string;
+  title: string;
+  detail: string;
+  amount: string | number;
+  direction: "IN" | "OUT";
+  createdBy?: { name: string };
+};
 type Installment = {
-  id: string
-  installmentNumber: number
-  dueDate: string
-  principalAmount: string | number
-  paidAmount: string | number
-  remainingAmount: string | number
-  status: string
-}
+  id: string;
+  installmentNumber: number;
+  dueDate: string;
+  principalAmount: string | number;
+  paidAmount: string | number;
+  remainingAmount: string | number;
+  status: string;
+};
 type Loan = {
-  id: string
-  principalAmount: string | number
-  tenorMonths: number
-  purpose: string
-  status: string
-  requestedAt: string
-  rejectionReason?: string | null
-  approvedAt?: string | null
-  approvedBy?: { id: string; name: string } | null
-  rejectedBy?: { id: string; name: string } | null
-  borrower: { id: string; name: string; phone: string }
-  installments: Installment[]
-  approvalRequest?: { id: string; currentStep: number; status: string } | null
-}
-type User = SessionUser
+  id: string;
+  principalAmount: string | number;
+  tenorMonths: number;
+  purpose: string;
+  status: string;
+  requestedAt: string;
+  rejectionReason?: string | null;
+  approvedAt?: string | null;
+  approvedBy?: { id: string; name: string } | null;
+  rejectedBy?: { id: string; name: string } | null;
+  borrower: { id: string; name: string; phone: string };
+  installments: Installment[];
+  approvalRequest?: { id: string; currentStep: number; status: string } | null;
+};
+type User = SessionUser;
 type Member = {
-  id: string
-  role: string
-  status: string
-  joinedAt: string
+  family?: { id: string; name: string; code: string };
+  id: string;
+  role: string;
+  status: string;
+  joinedAt: string;
   user: {
-    name: string
-    email: string | null
-    phone: string
-    systemRole: string
-  }
-}
-type Family = { id: string; name: string; code: string }
-type LedgerEntry = Activity & { occurredAt: string; description: string }
-type Notice = { message: string; tone: 'success' | 'warning' | 'error' }
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string;
+    systemRole: string;
+  };
+};
+type Family = { id: string; name: string; code: string };
+type LedgerEntry = Activity & {
+  occurredAt: string;
+  description: string;
+  type: string;
+  referenceId?: string;
+  balanceBefore?: string | null;
+  balanceAfter?: string | null;
+};
+const ledgerLabels: Record<string, string> = {
+  CONTRIBUTION: "Setoran anggota",
+  WITHDRAWAL: "Tarikan kontribusi",
+  LOAN_DISBURSEMENT: "Pencairan pinjaman",
+  LOAN_REPAYMENT: "Pengembalian pinjaman",
+  OTHER_INCOME: "Pemasukan umum",
+  EXPENSE: "Pengeluaran umum",
+  INITIAL_BALANCE: "Saldo awal",
+  ADJUSTMENT: "Penyesuaian",
+  REVERSAL: "Pembalik transaksi",
+};
+type Notice = { message: string; tone: "success" | "warning" | "error" };
 
 function App() {
-  const [user, setUser] = useState<User | null>(null)
-  const unreadNotifications = useUnreadNotifications(user?.id)
-  const [loginForm, setLoginForm] = useState({ email: '', password: '' })
-  const [loginError, setLoginError] = useState('')
-  const [loginLoading, setLoginLoading] = useState(false)
-  const [active, setActive] = useState<AppPage>(initialPage)
-  const loanPermissions = useLoanPermissions(user, active === 'Pinjaman')
-  const [hierarchyDirty, setHierarchyDirty] = useState(false)
+  const confirm = useConfirmation();
+  const [user, setUser] = useState<User | null>(null);
+  const unreadNotifications = useUnreadNotifications(user?.id);
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [loginError, setLoginError] = useState("");
+  const [loginErrorCode, setLoginErrorCode] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(
+    Boolean(localStorage.getItem("dana_access_token")),
+  );
+  const memberLoadSequence = useRef(0);
+  const [active, setActive] = useState<AppPage>(initialPage);
+  const loanPermissions = useLoanPermissions(
+    user,
+    active === "Pinjaman" || active === "Kas",
+  );
+  const [hierarchyDirty, setHierarchyDirty] = useState(false);
   const [approvalRequestId, setApprovalRequestId] = useState<string | null>(
-    () => new URLSearchParams(window.location.search).get('request'),
-  )
+    () => new URLSearchParams(window.location.search).get("request"),
+  );
   const openApproval = (id: string) => {
-    setApprovalRequestId(id)
-    setActive('Persetujuan')
-    window.history.replaceState(
+    setApprovalRequestId(id);
+    setActive("Persetujuan");
+    window.history.pushState(
       null,
-      '',
+      "",
       `?view=approvals&request=${encodeURIComponent(id)}`,
-    )
-  }
+    );
+  };
   const [paymentInstallmentId, setPaymentInstallmentId] = useState<
     string | null
-  >(() => new URLSearchParams(window.location.search).get('installment'))
+  >(() => new URLSearchParams(window.location.search).get("installment"));
   const openPayment = (id: string) => {
-    setPaymentInstallmentId(id)
-    setActive('Cicilan')
-    window.history.replaceState(
+    setPaymentInstallmentId(id);
+    setActive("Cicilan");
+    window.history.pushState(
       null,
-      '',
+      "",
       `?installment=${encodeURIComponent(id)}`,
-    )
-  }
+    );
+  };
   const closePayment = () => {
-    setPaymentInstallmentId(null)
-    window.history.replaceState(null, '', window.location.pathname)
-  }
-  const navigate = (page: AppPage) => {
+    setPaymentInstallmentId(null);
+    window.history.pushState(null, "", "?view=installments");
+  };
+  const navigate = async (page: AppPage) => {
     if (
       hierarchyDirty &&
       page !== active &&
-      !window.confirm('Perubahan hirarki belum disimpan. Tinggalkan halaman?')
+      !(await confirm({
+        title: "Tinggalkan halaman?",
+        message: "Perubahan hirarki belum disimpan dan akan hilang.",
+        confirmLabel: "Tinggalkan halaman",
+        destructive: true,
+      }))
     )
-      return
-    setApprovalRequestId(null)
+      return;
+    setApprovalRequestId(null);
     if (
-      user?.systemRole === 'SUPER_ADMIN' &&
-      ['Ringkasan', 'Kas', 'Pinjaman', 'Cicilan', 'Persetujuan'].includes(page)
+      user?.systemRole === "SUPER_ADMIN" &&
+      ["Ringkasan", "Kas", "Pinjaman", "Cicilan", "Persetujuan"].includes(page)
     )
-      page = 'Setup Hirarki'
-    setActive(page)
-    setPaymentInstallmentId(null)
-    window.history.replaceState(null, '', `?view=${pageQueries[page]}`)
-  }
+      page = "Setup Hirarki";
+    setActive(page);
+    setPaymentInstallmentId(null);
+    window.history.pushState(null, "", `?view=${pageQueries[page]}`);
+  };
+  const [cashRevision, setCashRevision] = useState(0);
   const refreshFinancials = () => {
-    unreadNotifications.refresh()
-    void loadLoans()
-    void loadLedger()
-    api<{ data: Summary }>('/dashboard/summary')
-      .then((payload) => setSummary(payload.data))
-      .catch(() => undefined)
-  }
-  const [summary, setSummary] = useState<Summary | null>(null)
-  const [ledger, setLedger] = useState<LedgerEntry[]>([])
-  const [ledgerLoading, setLedgerLoading] = useState(false)
-  const [ledgerFormOpen, setLedgerFormOpen] = useState(false)
+    setCashRevision((value) => value + 1);
+    unreadNotifications.refresh();
+    void loadLoans();
+    void loadLedger();
+    api<{ data: Summary }>("/dashboard/summary")
+      .then((payload) => {
+        setSummary(payload.data);
+        setSummaryError("");
+      })
+      .catch((error: unknown) =>
+        setSummaryError(
+          error instanceof Error
+            ? error.message
+            : "Ringkasan belum dapat dimuat.",
+        ),
+      );
+  };
+  const [summaryError, setSummaryError] = useState("");
+  const [ledgerError, setLedgerError] = useState("");
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
+  const ledgerKey = useRef(crypto.randomUUID());
+  const [ledgerFormOpen, setLedgerFormOpen] = useState(false);
   const [ledgerForm, setLedgerForm] = useState({
-    direction: 'IN',
-    amount: '',
-    description: '',
-  })
-  const [loans, setLoans] = useState<Loan[]>([])
-  const [loansLoading, setLoansLoading] = useState(false)
-  const [loansError, setLoansError] = useState('')
-  const [loanFormOpen, setLoanFormOpen] = useState(false)
-  const [loanForm, setLoanForm] = useState({
-    amount: '',
-    tenorMonths: '6',
-    purpose: '',
-  })
-  const [notice, setNoticeState] = useState<Notice | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [members, setMembers] = useState<Member[]>([])
-  const [membersLoading, setMembersLoading] = useState(false)
-  const [membersError, setMembersError] = useState('')
-  const [families, setFamilies] = useState<Family[]>([])
-  const [memberFormOpen, setMemberFormOpen] = useState(false)
-  const [memberMode, setMemberMode] = useState<
-    'new-family' | 'new-member' | 'existing-member'
-  >('new-member')
-  const [memberSearch, setMemberSearch] = useState('')
-  const [familySearch, setFamilySearch] = useState('')
-  const [userResults, setUserResults] = useState<
-    Array<{ id: string; name: string; email: string | null; phone: string }>
-  >([])
-  const [selectedUser, setSelectedUser] = useState<{
-    id: string
-    name: string
-    email: string | null
-    phone: string
-  } | null>(null)
-  const [memberForm, setMemberForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    password: '',
-    role: 'MEMBER',
-    familyId: '',
-    familyName: '',
-    familyCode: '',
-    description: '',
-  })
+    direction: "IN",
+    amount: "",
+    description: "",
+  });
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [loansLoading, setLoansLoading] = useState(true);
+  const [loansError, setLoansError] = useState("");
+  const [notice, setNoticeState] = useState<Notice | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [membersLoading, setMembersLoading] = useState(true);
+  const [membersError, setMembersError] = useState("");
+  const [families, setFamilies] = useState<Family[]>([]);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [loanFormOpen, setLoanFormOpen] = useState(false);
+  const [memberFormOpen, setMemberFormOpen] = useState(false);
+  const [memberFamilyId, setMemberFamilyId] = useState("");
+  const [familiesLoading, setFamiliesLoading] = useState(true);
+  const [familiesError, setFamiliesError] = useState("");
+  useEffect(() => {
+    const restoreLocation = () => {
+      if (hierarchyDirty) {
+        window.history.pushState(null, "", `?view=${pageQueries[active]}`);
+        setNoticeState({
+          message:
+            "Simpan perubahan hirarki atau gunakan menu aplikasi untuk meninggalkan halaman.",
+          tone: "warning",
+        });
+        return;
+      }
+      let page = initialPage();
+      if (
+        user?.systemRole === "SUPER_ADMIN" &&
+        ["Ringkasan", "Kas", "Pinjaman", "Cicilan", "Persetujuan"].includes(
+          page,
+        )
+      )
+        page = "Setup Hirarki";
+      setActive(page);
+      const query = new URLSearchParams(window.location.search);
+      setPaymentInstallmentId(query.get("installment"));
+      setApprovalRequestId(query.get("request"));
+    };
+    window.addEventListener("popstate", restoreLocation);
+    return () => window.removeEventListener("popstate", restoreLocation);
+  }, [active, hierarchyDirty, user?.systemRole]);
   const setNotice = (message: string | null) =>
-    setNoticeState(message ? { message, tone: 'success' } : null)
-  const showNotice = (message: string, tone: Notice['tone'] = 'success') =>
-    setNoticeState({ message, tone })
+    setNoticeState(message ? { message, tone: "success" } : null);
+  const showNotice = (message: string, tone: Notice["tone"] = "success") =>
+    setNoticeState({ message, tone });
   useEffect(() => {
-    if (!notice) return
-    if (notice.tone === 'error' || notice.tone === 'warning') return
-    const timeout = window.setTimeout(() => setNoticeState(null), 6000)
-    return () => window.clearTimeout(timeout)
-  }, [notice])
+    if (!notice) return;
+    if (notice.tone === "error" || notice.tone === "warning") return;
+    const timeout = window.setTimeout(() => setNoticeState(null), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
   useEffect(() => {
-    if (localStorage.getItem('dana_access_token'))
-      api<{ data: User }>('/auth/me')
+    if (localStorage.getItem("dana_access_token"))
+      api<{ data: User }>("/auth/me")
         .then((payload) => {
-          setUser(payload.data)
+          setUser(payload.data);
           if (
-            payload.data.systemRole === 'SUPER_ADMIN' &&
+            payload.data.systemRole === "SUPER_ADMIN" &&
             ![
-              'Anggota',
-              'Notifikasi',
-              'Pengaturan',
-              'Panduan',
-              'Setup Hirarki',
+              "Anggota",
+              "Notifikasi",
+              "Pengaturan",
+              "Panduan",
+              "Setup Hirarki",
             ].includes(initialPage())
           )
-            setActive('Setup Hirarki')
+            setActive("Setup Hirarki");
         })
-        .catch(() => localStorage.removeItem('dana_access_token'))
-  }, [])
-  const loadMembers = async () => {
-    setMembersLoading(true)
-    setMembersError('')
+        .catch((error: unknown) => {
+          if (error instanceof ApiError && error.status === 401) {
+            localStorage.removeItem("dana_access_token");
+            localStorage.removeItem("dana_refresh_token");
+          }
+          setLoginError(
+            error instanceof Error ? error.message : "Sesi belum dapat dimuat.",
+          );
+        })
+        .finally(() => setSessionLoading(false));
+  }, []);
+  useEffect(() => {
+    const expired = () => {
+      setUser(null);
+      setMembers([]);
+      setLoans([]);
+      setLedger([]);
+      setSummary(null);
+      setLedgerFormOpen(false);
+      setMemberFormOpen(false);
+      setLoginError("Sesi Anda telah berakhir. Silakan masuk kembali.");
+    };
+    window.addEventListener("dana:session-expired", expired);
+    return () => window.removeEventListener("dana:session-expired", expired);
+  }, []);
+  const loadMembers = async (selectedFamily = memberFamilyId) => {
+    const sequence = ++memberLoadSequence.current;
+    setMembersLoading(true);
+    setMembersError("");
     try {
-      setMembers((await api<{ data: Member[] }>('/management/members')).data)
+      const result = (
+        await api<{ data: Member[] }>(
+          `/management/members${user?.systemRole === "SUPER_ADMIN" && selectedFamily ? `?familyId=${encodeURIComponent(selectedFamily)}` : ""}`,
+        )
+      ).data;
+      if (sequence === memberLoadSequence.current) setMembers(result);
     } catch (error) {
-      setMembersError(
-        error instanceof Error
-          ? error.message
-          : 'Data anggota tidak dapat dimuat',
-      )
+      if (sequence === memberLoadSequence.current)
+        setMembersError(
+          error instanceof Error
+            ? error.message
+            : "Data anggota tidak dapat dimuat",
+        );
     } finally {
-      setMembersLoading(false)
+      if (sequence === memberLoadSequence.current) setMembersLoading(false);
     }
-  }
+  };
   const loadLoans = async () => {
-    setLoansLoading(true)
-    setLoansError('')
+    setLoansLoading(true);
+    setLoansError("");
     try {
-      setLoans((await api<{ data: Loan[] }>('/loans')).data)
+      setLoans((await api<{ data: Loan[] }>("/loans")).data);
     } catch (error) {
       setLoansError(
         error instanceof Error
           ? error.message
-          : 'Data pinjaman tidak dapat dimuat',
-      )
+          : "Data pinjaman tidak dapat dimuat",
+      );
     } finally {
-      setLoansLoading(false)
+      setLoansLoading(false);
     }
-  }
+  };
   const loadLedger = async () => {
-    setLedgerLoading(true)
+    setLedgerLoading(true);
+    setLedgerError("");
     try {
-      setLedger((await api<{ data: LedgerEntry[] }>('/ledger')).data)
-    } catch {
-      setLedger([])
+      setLedger((await api<{ data: LedgerEntry[] }>("/ledger")).data);
+    } catch (error) {
+      setLedgerError(
+        error instanceof Error
+          ? error.message
+          : "Catatan kas belum dapat dimuat.",
+      );
     } finally {
-      setLedgerLoading(false)
+      setLedgerLoading(false);
     }
-  }
+  };
   useEffect(() => {
-    if (!user) return
-    const controller = new AbortController()
-    const options = { signal: controller.signal }
-    if (user.systemRole !== 'SUPER_ADMIN')
-      api<{ data: Summary }>('/dashboard/summary', options)
-        .then((payload) => {
-          if (!controller.signal.aborted) setSummary(payload.data)
-        })
-        .catch(() => undefined)
-    if (user.systemRole !== 'SUPER_ADMIN')
-      api<{ data: Loan[] }>('/loans', options)
+    if (!user) return;
+    const controller = new AbortController();
+    const options = { signal: controller.signal };
+    if (user.systemRole !== "SUPER_ADMIN")
+      api<{ data: Summary }>("/dashboard/summary", options)
         .then((payload) => {
           if (!controller.signal.aborted) {
-            setLoans(payload.data)
-            setLoansError('')
+            setSummary(payload.data);
+            setSummaryError("");
+          }
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted)
+            setSummaryError(
+              error instanceof Error
+                ? error.message
+                : "Ringkasan belum dapat dimuat.",
+            );
+        });
+    if (user.systemRole !== "SUPER_ADMIN")
+      api<{ data: Loan[] }>("/loans", options)
+        .then((payload) => {
+          if (!controller.signal.aborted) {
+            setLoans(payload.data);
+            setLoansError("");
           }
         })
         .catch((error: unknown) => {
           if (!controller.signal.aborted)
             setLoansError(
-              error instanceof Error ? error.message : 'Pinjaman gagal dimuat',
-            )
+              error instanceof Error ? error.message : "Pinjaman gagal dimuat",
+            );
         })
         .finally(() => {
-          if (!controller.signal.aborted) setLoansLoading(false)
-        })
-    api<{ data: Member[] }>('/management/members', options)
+          if (!controller.signal.aborted) setLoansLoading(false);
+        });
+    const memberSequence = ++memberLoadSequence.current;
+    api<{ data: Member[] }>("/management/members", options)
       .then((payload) => {
-        if (!controller.signal.aborted) {
-          setMembers(payload.data)
-          setMembersError('')
+        if (
+          !controller.signal.aborted &&
+          memberSequence === memberLoadSequence.current
+        ) {
+          setMembers(payload.data);
+          setMembersError("");
         }
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted)
+        if (
+          !controller.signal.aborted &&
+          memberSequence === memberLoadSequence.current
+        )
           setMembersError(
-            error instanceof Error ? error.message : 'Anggota gagal dimuat',
-          )
+            error instanceof Error ? error.message : "Anggota gagal dimuat",
+          );
       })
       .finally(() => {
-        if (!controller.signal.aborted) setMembersLoading(false)
-      })
-    if (user.systemRole !== 'SUPER_ADMIN')
-      api<{ data: LedgerEntry[] }>('/ledger', options)
-        .then((payload) => {
-          if (!controller.signal.aborted) setLedger(payload.data)
-        })
-        .catch(() => undefined)
-        .finally(() => {
-          if (!controller.signal.aborted) setLedgerLoading(false)
-        })
-    if (user.systemRole === 'SUPER_ADMIN')
-      api<{ data: Family[] }>('/management/families', options)
+        if (
+          !controller.signal.aborted &&
+          memberSequence === memberLoadSequence.current
+        )
+          setMembersLoading(false);
+      });
+    if (user.systemRole !== "SUPER_ADMIN")
+      api<{ data: LedgerEntry[] }>("/ledger", options)
         .then((payload) => {
           if (!controller.signal.aborted) {
-            setFamilies(payload.data)
-            setMemberForm((current) => ({
-              ...current,
-              familyId: current.familyId || payload.data[0]?.id || '',
-            }))
+            setLedger(payload.data);
+            setLedgerError("");
           }
         })
-        .catch(() => undefined)
-    return () => controller.abort()
-  }, [user])
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted)
+            setLedgerError(
+              error instanceof Error
+                ? error.message
+                : "Catatan kas belum dapat dimuat.",
+            );
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLedgerLoading(false);
+        });
+    if (user.systemRole === "SUPER_ADMIN")
+      api<{ data: Family[] }>("/management/families", options)
+        .then((payload) => {
+          if (!controller.signal.aborted) {
+            setFamilies(payload.data);
+            setFamiliesError("");
+          }
+        })
+        .catch((err: unknown) => {
+          if (!controller.signal.aborted)
+            setFamiliesError(
+              err instanceof Error
+                ? err.message
+                : "Daftar keluarga belum dapat dimuat.",
+            );
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setFamiliesLoading(false);
+        });
+    return () => controller.abort();
+  }, [user]);
   const login = async (event: FormEvent) => {
-    event.preventDefault()
-    if (loginLoading) return
-    setLoginLoading(true)
-    setLoginError('')
+    event.preventDefault();
+    if (loginLoading) return;
+    setLoginLoading(true);
+    setLoginErrorCode("");
+    setLoginError("");
     try {
       const payload = await api<{
-        data: { accessToken: string; refreshToken: string; user: User }
-      }>('/auth/login', {
-        method: 'POST',
+        data: { accessToken: string; refreshToken: string; user: User };
+      }>("/auth/login", {
+        method: "POST",
         body: JSON.stringify({
           email: loginForm.email.trim(),
           password: loginForm.password,
         }),
-      })
-      localStorage.setItem('dana_access_token', payload.data.accessToken)
-      localStorage.setItem('dana_refresh_token', payload.data.refreshToken)
-      setLoginForm((current) => ({ ...current, password: '' }))
-      setUser(payload.data.user)
-      if (payload.data.user.systemRole === 'SUPER_ADMIN')
-        navigate('Setup Hirarki')
+      });
+      localStorage.setItem("dana_access_token", payload.data.accessToken);
+      localStorage.setItem("dana_refresh_token", payload.data.refreshToken);
+      setLoginForm((current) => ({ ...current, password: "" }));
+      setUser(payload.data.user);
+      if (payload.data.user.systemRole === "SUPER_ADMIN")
+        navigate("Setup Hirarki");
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : 'Login gagal')
+      setLoginErrorCode(error instanceof ApiError ? (error.code ?? "") : "");
+      setLoginError(error instanceof Error ? error.message : "Login gagal");
     } finally {
-      setLoginLoading(false)
+      setLoginLoading(false);
     }
-  }
+  };
   const logout = async () => {
     if (
       hierarchyDirty &&
-      !window.confirm('Perubahan hirarki belum disimpan. Keluar dari akun?')
+      !(await confirm({
+        title: "Keluar dari akun?",
+        message: "Perubahan hirarki belum disimpan dan akan hilang.",
+        confirmLabel: "Keluar",
+        destructive: true,
+      }))
     )
-      return
-    const refreshToken = localStorage.getItem('dana_refresh_token')
-    await api('/auth/logout', {
-      method: 'POST',
+      return;
+    const refreshToken = localStorage.getItem("dana_refresh_token");
+    await api("/auth/logout", {
+      method: "POST",
       signal: AbortSignal.timeout(8000),
       body: JSON.stringify({ refreshToken }),
-    }).catch(() => undefined)
-    localStorage.removeItem('dana_access_token')
-    localStorage.removeItem('dana_refresh_token')
-    setUser(null)
-    setLoans([])
-    setLedger([])
-    setSummary(null)
-    setMembers([])
-    setNotice(null)
-    setLoanFormOpen(false)
-    setLedgerFormOpen(false)
-    setMemberFormOpen(false)
-    setFamilies([])
-    setActive('Ringkasan')
-    closePayment()
-  }
-  const submitRegistration = async (event: FormEvent) => {
-    event.preventDefault()
-    setLoading(true)
-    setNotice(null)
-    try {
-      if (user?.systemRole === 'SUPER_ADMIN') {
-        const type =
-          memberMode === 'new-family'
-            ? 'NEW_FAMILY'
-            : memberMode === 'existing-member'
-              ? 'EXISTING_MEMBER'
-              : 'NEW_MEMBER'
-        await api('/management/registrations', {
-          method: 'POST',
-          body: JSON.stringify({
-            type,
-            role: memberForm.role,
-            familyId: memberForm.familyId || undefined,
-            existingUserId: selectedUser?.id,
-            name: memberForm.name || undefined,
-            email: memberForm.email || undefined,
-            phone: memberForm.phone || undefined,
-            password: memberForm.password || undefined,
-            familyName: memberForm.familyName || undefined,
-            familyCode: memberForm.familyCode || undefined,
-            description: memberForm.description || undefined,
-          }),
-        })
-      } else {
-        await api('/management/members', {
-          method: 'POST',
-          body: JSON.stringify({
-            role: memberForm.role,
-            name: memberForm.name,
-            email: memberForm.email || undefined,
-            phone: memberForm.phone,
-            password: memberForm.password,
-          }),
-        })
-      }
-      setMemberFormOpen(false)
-      setSelectedUser(null)
-      setMemberSearch('')
-      setUserResults([])
-      setMemberForm({
-        name: '',
-        email: '',
-        phone: '',
-        password: '',
-        role: 'MEMBER',
-        familyId: memberForm.familyId,
-        familyName: '',
-        familyCode: '',
-        description: '',
-      })
-      await loadMembers()
-      showNotice('Anggota berhasil ditambahkan ke ruang keluarga.')
-    } catch (error) {
-      showNotice(
-        error instanceof Error ? error.message : 'Pendaftaran gagal',
-        'error',
-      )
-    } finally {
-      setLoading(false)
-    }
-  }
-  const searchExistingUsers = async (value: string) => {
-    setMemberSearch(value)
-    setSelectedUser(null)
-    if (value.trim().length < 2) return setUserResults([])
-    try {
-      setUserResults(
-        (
-          await api<{
-            data: Array<{
-              id: string
-              name: string
-              email: string | null
-              phone: string
-            }>
-          }>(`/management/users?search=${encodeURIComponent(value)}`)
-        ).data,
-      )
-    } catch {
-      setUserResults([])
-    }
-  }
-  const submitLoan = async (event: FormEvent) => {
-    event.preventDefault()
-    setLoading(true)
-    setNotice(null)
-    try {
-      await api('/loans', {
-        method: 'POST',
-        body: JSON.stringify({
-          amount: loanForm.amount,
-          tenorMonths: loanForm.tenorMonths,
-          purpose: loanForm.purpose,
-        }),
-      })
-      setLoanFormOpen(false)
-      setLoanForm({ amount: '', tenorMonths: '6', purpose: '' })
-      await loadLoans()
-      unreadNotifications.refresh()
-      showNotice('Pengajuan pinjaman berhasil dibuat.')
-    } catch (error) {
-      showNotice(
-        error instanceof Error ? error.message : 'Pengajuan gagal',
-        'error',
-      )
-    } finally {
-      setLoading(false)
-    }
-  }
+    }).catch(() => undefined);
+    localStorage.removeItem("dana_access_token");
+    localStorage.removeItem("dana_refresh_token");
+    setUser(null);
+    setLoans([]);
+    setLedger([]);
+    setSummary(null);
+    setMembers([]);
+    setNotice(null);
+    setLedgerFormOpen(false);
+    setMemberFormOpen(false);
+    setFamilies([]);
+    setActive("Ringkasan");
+    setPaymentInstallmentId(null);
+    setApprovalRequestId(null);
+    setMemberFamilyId("");
+    window.history.replaceState(null, "", "?view=summary");
+  };
   const submitLedger = async (event: FormEvent) => {
-    event.preventDefault()
-    setLoading(true)
+    event.preventDefault();
+    if (loading) return;
+    if (currencyError(ledgerForm.amount, true)) {
+      showNotice(
+        "Nominal harus lebih dari nol dan berupa rupiah utuh.",
+        "error",
+      );
+      return;
+    }
+    if (
+      !(await confirm({
+        title: "Simpan catatan kas?",
+        message: `${ledgerForm.direction === "IN" ? "Pemasukan" : "Pengeluaran"} ${rupiah(ledgerForm.amount)} akan memengaruhi saldo keluarga. Periksa nominal dan keterangannya.`,
+        confirmLabel: "Simpan catatan",
+      }))
+    )
+      return;
+    setLoading(true);
     try {
-      await api('/ledger', {
-        method: 'POST',
+      await api("/ledger", {
+        method: "POST",
         body: JSON.stringify({
+          idempotencyKey: ledgerKey.current,
           direction: ledgerForm.direction,
           amount: ledgerForm.amount,
           description: ledgerForm.description,
         }),
-      })
-      setLedgerFormOpen(false)
-      setLedgerForm({ direction: 'IN', amount: '', description: '' })
-      await loadLedger()
-      showNotice('Catatan kas berhasil disimpan.')
+      });
+      setLedgerFormOpen(false);
+      ledgerKey.current = crypto.randomUUID();
+      setLedgerForm({ direction: "IN", amount: "", description: "" });
+      refreshFinancials();
+      showNotice("Catatan kas berhasil disimpan.");
     } catch (error) {
       showNotice(
-        error instanceof Error ? error.message : 'Catatan kas gagal disimpan',
-        'error',
-      )
+        error instanceof Error ? error.message : "Catatan kas gagal disimpan",
+        "error",
+      );
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
   const unpaidInstallments = loans.reduce(
     (total, loan) =>
       total +
-      loan.installments.filter((installment) => installment.status !== 'PAID')
+      loan.installments.filter((installment) => installment.status !== "PAID")
         .length,
     0,
-  )
+  );
 
-  const isSuperAdmin = user?.systemRole === 'SUPER_ADMIN'
-  const isFamilyAdmin = user?.familyRole === 'ADMIN'
-  const isTreasurer = user?.familyRole === 'TREASURER'
-  const canManageMembers = isSuperAdmin || isFamilyAdmin
-  const canManageLoans = !isSuperAdmin && isFamilyAdmin
+  const isSuperAdmin = user?.systemRole === "SUPER_ADMIN";
+  const isFamilyAdmin = user?.familyRole === "ADMIN";
+  const isTreasurer = user?.familyRole === "TREASURER";
+  const canManageMembers = isSuperAdmin || isFamilyAdmin;
+  const canManageLoans = !isSuperAdmin && isFamilyAdmin;
   const canRequestLoan =
-    user?.systemRole === 'USER' && loanPermissions.data?.canCreateLoan === true
-  const canManageLedger = !isSuperAdmin && (isFamilyAdmin || isTreasurer)
-  const filteredFamilies = families.filter((family) =>
-    `${family.name} ${family.code}`
-      .toLowerCase()
-      .includes(familySearch.trim().toLowerCase()),
-  )
+    user?.systemRole === "USER" && loanPermissions.data?.canCreateLoan === true;
+  const canManageLedger = !isSuperAdmin && (isFamilyAdmin || isTreasurer);
   const installmentGroups = loans.reduce<
     Array<{
-      borrowerId: string
-      borrowerName: string
-      loans: Loan[]
-      installments: Array<{ loan: Loan; installment: Installment }>
+      borrowerId: string;
+      borrowerName: string;
+      loans: Loan[];
+      installments: Array<{ loan: Loan; installment: Installment }>;
     }>
   >((groups, loan) => {
     const existing = groups.find(
       (group) => group.borrowerId === loan.borrower.id,
-    )
+    );
     const group = existing ?? {
       borrowerId: loan.borrower.id,
       borrowerName: loan.borrower.name,
       loans: [],
       installments: [],
-    }
-    if (!existing) groups.push(group)
-    group.loans.push(loan)
+    };
+    if (!existing) groups.push(group);
+    group.loans.push(loan);
     loan.installments.forEach((installment) =>
       group.installments.push({ loan, installment }),
-    )
-    return groups
-  }, [])
-  const [expandedBorrowers, setExpandedBorrowers] = useState<string[]>([])
-  const openMemberForm = () => {
-    setMemberMode('new-member')
-    setFamilySearch('')
-    setMemberForm((current) => ({ ...current, password: '' }))
-    setMemberFormOpen(true)
-  }
+    );
+    return groups;
+  }, []);
+  const [expandedBorrowers, setExpandedBorrowers] = useState<string[]>([]);
+  const openMemberForm = () => setMemberFormOpen(true);
+  if (sessionLoading)
+    return (
+      <main className="login-page">
+        <LoadingState label="Memeriksa sesi Anda..." />
+      </main>
+    );
   if (!user)
     return (
       <div className="login-page">
@@ -630,7 +654,26 @@ function App() {
           <p className="login-copy">
             Masuk untuk melihat kas, pinjaman, dan aktivitas keluarga.
           </p>
-          {loginError && <Feedback tone="error">{loginError}</Feedback>}
+          {loginError && (
+            <Feedback
+              tone={
+                loginErrorCode === "AUTH_EMAIL_NOT_REGISTERED"
+                  ? "warning"
+                  : "error"
+              }
+              title={
+                loginErrorCode === "AUTH_EMAIL_NOT_REGISTERED"
+                  ? "Email belum terdaftar"
+                  : loginErrorCode === "AUTH_PASSWORD_INCORRECT"
+                    ? "Password salah"
+                    : loginErrorCode === "AUTH_ACCOUNT_INACTIVE"
+                      ? "Akun tidak aktif"
+                      : undefined
+              }
+            >
+              {loginError}
+            </Feedback>
+          )}
           <label htmlFor="login-email">
             Email
             <input
@@ -645,8 +688,8 @@ function App() {
               disabled={loginLoading}
               value={loginForm.email}
               onChange={(event) => {
-                setLoginError('')
-                setLoginForm({ ...loginForm, email: event.target.value })
+                setLoginError("");
+                setLoginForm({ ...loginForm, email: event.target.value });
               }}
             />
           </label>
@@ -662,8 +705,8 @@ function App() {
               disabled={loginLoading}
               value={loginForm.password}
               onChange={(event) => {
-                setLoginError('')
-                setLoginForm({ ...loginForm, password: event.target.value })
+                setLoginError("");
+                setLoginForm({ ...loginForm, password: event.target.value });
               }}
             />
           </label>
@@ -677,14 +720,14 @@ function App() {
             ) : (
               <LogIn size={18} aria-hidden="true" />
             )}
-            {loginLoading ? 'Sedang masuk...' : 'Masuk'}
+            {loginLoading ? "Sedang masuk..." : "Masuk"}
           </button>
           <p className="login-help">
             Belum memiliki akun atau lupa password? Hubungi admin keluarga.
           </p>
         </ValidatedForm>
       </div>
-    )
+    );
   return (
     <AppShell
       key={user.id}
@@ -700,91 +743,109 @@ function App() {
       <section className="intro">
         <div>
           <p className="date">
-            {new Intl.DateTimeFormat('id-ID', {
-              dateStyle: 'full',
-              timeZone: 'Asia/Jakarta',
+            {new Intl.DateTimeFormat("id-ID", {
+              dateStyle: "full",
+              timeZone: "Asia/Jakarta",
             }).format(new Date())}
           </p>
           <h1>
-            {active === 'Setup Hirarki'
-              ? 'Setup hirarki keluarga.'
-              : active === 'Persetujuan'
-                ? 'Persetujuan berurutan.'
-                : active === 'Panduan'
-                  ? 'Panduan Dana Keluarga.'
-                  : active === 'Pengaturan'
-                    ? 'Pengaturan pemberitahuan.'
-                    : active === 'Notifikasi'
-                      ? 'Pemberitahuan keluarga.'
-                      : active === 'Anggota'
-                        ? 'Kelola ruang bersama.'
-                        : active === 'Pinjaman'
+            {!user.familyId && !isSuperAdmin && (
+              <Feedback tone="warning">
+                Akun Anda belum memiliki keluarga aktif. Hubungi admin untuk
+                memeriksa keanggotaan.
+              </Feedback>
+            )}
+            {active === "Tidak ditemukan" && (
+              <Feedback tone="warning" title="Halaman tidak ditemukan">
+                Tautan tidak dikenali. Pilih menu di sebelah kiri atau{" "}
+                <button
+                  className="text-button"
+                  onClick={() => navigate("Ringkasan")}
+                >
+                  buka beranda
+                </button>
+                .
+              </Feedback>
+            )}
+            {active === "Setup Hirarki"
+              ? "Setup hirarki keluarga."
+              : active === "Persetujuan"
+                ? "Persetujuan berurutan."
+                : active === "Panduan"
+                  ? "Panduan Dana Keluarga."
+                  : active === "Pengaturan"
+                    ? "Pengaturan pemberitahuan."
+                    : active === "Notifikasi"
+                      ? "Pemberitahuan keluarga."
+                      : active === "Anggota"
+                        ? "Kelola ruang bersama."
+                        : active === "Pinjaman"
                           ? canManageLoans
-                            ? 'Kelola pinjaman.'
-                            : 'Pinjaman saya.'
-                          : active === 'Cicilan'
-                            ? 'Jadwal cicilan.'
+                            ? "Kelola pinjaman."
+                            : "Pinjaman saya."
+                          : active === "Cicilan"
+                            ? "Jadwal cicilan."
                             : `Halo, ${user.name}.`}
           </h1>
           <p>
-            {active === 'Setup Hirarki'
-              ? 'Atur petugas dan urutan persetujuan untuk setiap keluarga.'
-              : active === 'Persetujuan'
-                ? 'Tinjau pengajuan pada tahap yang menjadi tanggung jawab Anda.'
-                : active === 'Panduan'
-                  ? 'Kenali alur aplikasi dan langkah yang sesuai dengan peran Anda.'
-                  : active === 'Pengaturan'
-                    ? 'Kelola persetujuan WhatsApp dan periksa riwayat pemrosesan pesan.'
-                    : active === 'Notifikasi'
-                      ? 'Baca kabar terbaru yang terkait dengan akun Anda.'
-                      : active === 'Anggota'
-                        ? 'Pastikan setiap orang memiliki akses dan peran yang tepat di keluarga ini.'
-                        : active === 'Pinjaman'
+            {active === "Setup Hirarki"
+              ? "Atur petugas dan urutan persetujuan untuk setiap keluarga."
+              : active === "Persetujuan"
+                ? "Tinjau pengajuan pada tahap yang menjadi tanggung jawab Anda."
+                : active === "Panduan"
+                  ? "Kenali alur aplikasi dan langkah yang sesuai dengan peran Anda."
+                  : active === "Pengaturan"
+                    ? "Lihat email penerima dan riwayat pengiriman pemberitahuan."
+                    : active === "Notifikasi"
+                      ? "Baca kabar terbaru yang terkait dengan akun Anda."
+                      : active === "Anggota"
+                        ? "Pastikan setiap orang memiliki akses dan peran yang tepat di keluarga ini."
+                        : active === "Pinjaman"
                           ? canManageLoans
-                            ? 'Tinjau pengajuan dan kelola dana keluarga dengan tertib.'
-                            : 'Pantau pengajuan dan kewajiban pinjaman Anda.'
-                          : active === 'Cicilan'
-                            ? 'Lihat jadwal pembayaran berdasarkan pinjaman yang telah dicairkan.'
-                            : 'Pelan-pelan, yang penting bersama. Ini kabar terbaru ruang dana keluarga.'}
+                            ? "Tinjau pengajuan dan kelola dana keluarga dengan tertib."
+                            : "Pantau pengajuan dan kewajiban pinjaman Anda."
+                          : active === "Cicilan"
+                            ? "Lihat jadwal pembayaran berdasarkan pinjaman yang telah dicairkan."
+                            : "Pelan-pelan, yang penting bersama. Ini kabar terbaru ruang dana keluarga."}
           </p>
         </div>
-        {active === 'Anggota' && canManageMembers && (
+        {active === "Anggota" && canManageMembers && (
           <button className="primary" onClick={openMemberForm}>
             <UserPlus size={17} />
             Tambah anggota
           </button>
         )}
       </section>
-      {notice && (
+      {notice && !ledgerFormOpen && (
         <Feedback tone={notice.tone} floating onClose={() => setNotice(null)}>
           {notice.message}
         </Feedback>
       )}
-      {active === 'Setup Hirarki' && (isSuperAdmin || isFamilyAdmin) && (
+      {active === "Setup Hirarki" && (isSuperAdmin || isFamilyAdmin) && (
         <HierarchySetup onDirtyChange={setHierarchyDirty} />
       )}
-      {active === 'Setup Hirarki' && !isSuperAdmin && !isFamilyAdmin && (
+      {active === "Setup Hirarki" && !isSuperAdmin && !isFamilyAdmin && (
         <Feedback tone="warning">
           Hanya Super Admin dan Admin keluarga yang dapat mengatur hirarki.
         </Feedback>
       )}
-      {active === 'Persetujuan' && !isSuperAdmin && (
+      {active === "Persetujuan" && !isSuperAdmin && (
         <ApprovalInbox
           requestId={approvalRequestId}
           user={user}
           onChanged={refreshFinancials}
         />
       )}
-      {active === 'Pinjaman' && (
+      {active === "Pinjaman" && (
         <section className="panel loan-list">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">RUANG DANA</p>
-              <h2>{canManageLoans ? 'Kelola pinjaman' : 'Pinjaman saya'}</h2>
+              <h2>{canManageLoans ? "Kelola pinjaman" : "Pinjaman saya"}</h2>
               <p className="panel-description">
                 {canManageLoans
-                  ? 'Tinjau pengajuan dan kelola pencairan dana keluarga.'
-                  : 'Pantau status pengajuan dan jadwal pengembalian dana Anda.'}
+                  ? "Tinjau pengajuan dan kelola pencairan dana keluarga."
+                  : "Pantau status pengajuan dan jadwal pengembalian dana Anda."}
               </p>
             </div>
             {canRequestLoan && (
@@ -800,12 +861,12 @@ function App() {
           {loanPermissions.data && !loanPermissions.data.canCreateLoan && (
             <Feedback tone="info">
               {!loanPermissions.data.configured
-                ? 'Hirarki pinjaman belum diatur. Hubungi Admin keluarga atau Super Admin untuk mengisi Setup Hirarki.'
-                : 'Pengajuan hanya tersedia untuk Maker yang tidak menjadi approver atau releaser dalam hirarki ini. Hubungi pengelola untuk penyesuaian petugas.'}
+                ? "Hirarki pinjaman belum diatur. Hubungi Admin keluarga atau Super Admin untuk mengisi Setup Hirarki."
+                : "Pengajuan hanya tersedia untuk Maker yang tidak menjadi approver atau releaser dalam hirarki ini. Hubungi pengelola untuk penyesuaian petugas."}
             </Feedback>
           )}
           {loansLoading ? (
-            <p className="empty">Memuat data pinjaman...</p>
+            <LoadingState label="Memuat data pinjaman..." />
           ) : loansError ? (
             <Feedback tone="error">
               <p>{loansError}</p>
@@ -821,20 +882,21 @@ function App() {
                 <div>
                   <strong>{loan.borrower.name}</strong>
                   <small>
-                    {loan.purpose} · {loan.tenorMonths} bulan · Diajukan{' '}
+                    {loan.purpose} · {loan.tenorMonths} bulan · Diajukan{" "}
                     {date.format(new Date(loan.requestedAt))}
                   </small>
-                  {loan.status === 'REJECTED' && loan.rejectionReason && (
-                    <small className="rejection-reason">
-                      Alasan: {loan.rejectionReason}
-                    </small>
-                  )}
+                  {["REJECTED", "CANCELLED"].includes(loan.status) &&
+                    loan.rejectionReason && (
+                      <small className="rejection-reason">
+                        Alasan: {loan.rejectionReason}
+                      </small>
+                    )}
                 </div>
                 <b>{rupiah(loan.principalAmount)}</b>
                 <span className={`status ${loan.status.toLowerCase()}`}>
                   {loanStatus[loan.status] ?? loan.status}
                 </span>
-                {['PENDING', 'APPROVED'].includes(loan.status) && (
+                {["PENDING", "APPROVED"].includes(loan.status) && (
                   <div className="loan-actions">
                     {loan.approvalRequest ? (
                       <button
@@ -854,7 +916,7 @@ function App() {
           )}
         </section>
       )}
-      {active === 'Notifikasi' && (
+      {active === "Notifikasi" && (
         <NotificationInbox
           key={user.id}
           currentFamilyId={user.familyId}
@@ -864,9 +926,9 @@ function App() {
           onOpenInstallment={openPayment}
         />
       )}
-      {active === 'Pengaturan' && <WhatsAppSettings key={user.id} />}
-      {active === 'Panduan' && <HelpGuide user={user} onNavigate={navigate} />}
-      {active === 'Cicilan' && paymentInstallmentId && (
+      {active === "Pengaturan" && <EmailSettings key={user.id} />}
+      {active === "Panduan" && <HelpGuide user={user} onNavigate={navigate} />}
+      {active === "Cicilan" && paymentInstallmentId && (
         <InstallmentPayment
           key={`${user.id}:${paymentInstallmentId}`}
           id={paymentInstallmentId}
@@ -874,19 +936,19 @@ function App() {
           onSettled={refreshFinancials}
         />
       )}
-      {active === 'Cicilan' && !paymentInstallmentId && (
+      {active === "Cicilan" && !paymentInstallmentId && (
         <section className="panel loan-list installment-list">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">JADWAL PEMBAYARAN</p>
-              <h2>{canManageLoans ? 'Cicilan keluarga' : 'Cicilan saya'}</h2>
+              <h2>{canManageLoans ? "Cicilan keluarga" : "Cicilan saya"}</h2>
               <p className="panel-description">
                 Pilih nama untuk melihat detail pinjaman dan jadwal cicilannya.
               </p>
             </div>
           </div>
           {loansLoading ? (
-            <p className="empty">Memuat jadwal cicilan...</p>
+            <LoadingState label="Memuat jadwal cicilan..." />
           ) : loansError ? (
             <Feedback tone="error">
               <p>{loansError}</p>
@@ -899,21 +961,27 @@ function App() {
           ) : (
             <div className="installment-groups">
               {installmentGroups.map((group) => {
-                const expanded = expandedBorrowers.includes(group.borrowerId)
+                const expanded = expandedBorrowers.includes(group.borrowerId);
                 const remaining = group.installments.reduce(
                   (total, item) =>
-                    total + Number(item.installment.remainingAmount),
-                  0,
-                )
+                    total +
+                    BigInt(
+                      String(item.installment.remainingAmount).replace(
+                        /\.00?$/,
+                        "",
+                      ),
+                    ),
+                  0n,
+                );
                 const unpaid = group.installments.filter(
-                  (item) => item.installment.status !== 'PAID',
-                ).length
+                  (item) => item.installment.status !== "PAID",
+                ).length;
                 return (
                   <article
                     className={
                       expanded
-                        ? 'installment-group expanded'
-                        : 'installment-group'
+                        ? "installment-group expanded"
+                        : "installment-group"
                     }
                     key={group.borrowerId}
                   >
@@ -949,8 +1017,8 @@ function App() {
                               <div>
                                 <strong>{loan.purpose}</strong>
                                 <small>
-                                  {rupiah(loan.principalAmount)} ·{' '}
-                                  {loan.tenorMonths} bulan ·{' '}
+                                  {rupiah(loan.principalAmount)} ·{" "}
+                                  {loan.tenorMonths} bulan ·{" "}
                                   {loanStatus[loan.status] ?? loan.status}
                                 </small>
                               </div>
@@ -970,7 +1038,7 @@ function App() {
                                     Cicilan {installment.installmentNumber}
                                   </span>
                                   <small>
-                                    Jatuh tempo{' '}
+                                    Jatuh tempo{" "}
                                     {date.format(new Date(installment.dueDate))}
                                   </small>
                                   <b>{rupiah(installment.remainingAmount)}</b>
@@ -994,21 +1062,46 @@ function App() {
                       </div>
                     )}
                   </article>
-                )
+                );
               })}
             </div>
           )}
         </section>
       )}
-      {active === 'Anggota' && (
+      {active === "Anggota" && (
         <>
+          {isSuperAdmin && (
+            <section className="panel family-context">
+              <SearchableSelect
+                label="Keluarga yang ditampilkan"
+                value={memberFamilyId}
+                placeholder="Semua keluarga"
+                disabled={familiesLoading}
+                options={families.map((family) => ({
+                  value: family.id,
+                  label: `${family.name} · ${family.code}`,
+                }))}
+                onChange={(next) => {
+                  setMemberFamilyId(next);
+                  setMembers([]);
+                  void loadMembers(next);
+                }}
+              />
+              {familiesLoading && (
+                <LoadingState label="Memuat daftar keluarga..." />
+              )}
+              {familiesError && (
+                <Feedback tone="error">{familiesError}</Feedback>
+              )}
+            </section>
+          )}
           <section className="member-stats">
             <article>
               <span className="stat-icon coral-light">
                 <Users size={17} />
               </span>
               <div>
-                <strong>{members.length}</strong>
+                <strong>{membersLoading ? "…" : members.length}</strong>
                 <small>Total anggota</small>
               </div>
             </article>
@@ -1018,10 +1111,10 @@ function App() {
               </span>
               <div>
                 <strong>
-                  {
-                    members.filter((member) => member.status === 'ACTIVE')
-                      .length
-                  }
+                  {membersLoading
+                    ? "…"
+                    : members.filter((member) => member.status === "ACTIVE")
+                        .length}
                 </strong>
                 <small>Akses aktif</small>
               </div>
@@ -1032,10 +1125,10 @@ function App() {
               </span>
               <div>
                 <strong>
-                  {
-                    members.filter((member) => member.role === 'TREASURER')
-                      .length
-                  }
+                  {membersLoading
+                    ? "…"
+                    : members.filter((member) => member.role === "TREASURER")
+                        .length}
                 </strong>
                 <small>Pengelola dana</small>
               </div>
@@ -1052,16 +1145,23 @@ function App() {
               </div>
             </div>
             {membersLoading ? (
-              <p className="empty">Memuat data anggota...</p>
+              <LoadingState label="Memuat data anggota..." />
             ) : membersError ? (
               <Feedback tone="error">
                 <p>{membersError}</p>
-                <button className="secondary-button" onClick={loadMembers}>
+                <button
+                  className="secondary-button"
+                  onClick={() => void loadMembers()}
+                >
                   Coba lagi
                 </button>
               </Feedback>
             ) : members.length === 0 ? (
-              <p className="empty">Belum ada anggota di ruang keluarga ini.</p>
+              <p className="empty">
+                {isSuperAdmin && !memberFamilyId
+                  ? "Belum ada anggota terdaftar di seluruh keluarga."
+                  : "Belum ada anggota di ruang keluarga ini. Admin dapat menambahkan anggota melalui tombol Tambah anggota."}
+              </p>
             ) : (
               <div className="member-table">
                 <div className="member-table-head">
@@ -1079,20 +1179,36 @@ function App() {
                       <div>
                         <strong>{member.user.name}</strong>
                         <small>{member.user.email || member.user.phone}</small>
+                        {isSuperAdmin && member.family && (
+                          <small>
+                            {member.family.name} · {member.family.code}
+                          </small>
+                        )}
                       </div>
                     </div>
                     <span className="role-label">
-                      {member.role === 'ADMIN'
-                        ? 'Admin keluarga'
-                        : member.role === 'TREASURER'
-                          ? 'Pengelola dana'
-                          : 'Anggota'}
+                      {member.role === "ADMIN"
+                        ? "Admin keluarga"
+                        : member.role === "TREASURER"
+                          ? "Pengelola dana"
+                          : "Anggota"}
                     </span>
                     <span className={`status ${member.status.toLowerCase()}`}>
-                      {member.status === 'ACTIVE' ? 'Aktif' : member.status}
+                      {member.status === "ACTIVE" ? "Aktif" : "Tidak aktif"}
                     </span>
                     <small className="joined-date">
                       {date.format(new Date(member.joinedAt))}
+                      {canManageMembers &&
+                        member.user.systemRole !== "SUPER_ADMIN" && (
+                          <button
+                            type="button"
+                            className="secondary-button member-edit-button"
+                            aria-label={`Edit peran ${member.user.name}`}
+                            onClick={() => setEditingMember(member)}
+                          >
+                            <Pencil size={16} aria-hidden="true" /> Edit peran
+                          </button>
+                        )}
                     </small>
                   </div>
                 ))}
@@ -1101,7 +1217,7 @@ function App() {
           </section>
         </>
       )}
-      {active === 'Ringkasan' && (
+      {active === "Ringkasan" && (
         <section className="welcome">
           <div>
             <p className="kicker">RUANG DANA</p>
@@ -1110,21 +1226,36 @@ function App() {
               Saldo dan aktivitas di bawah ini berasal dari catatan kas keluarga
               yang tersimpan di database.
             </p>
-            <button className="text-button" onClick={() => navigate('Kas')}>
+            <button className="text-button" onClick={() => navigate("Kas")}>
               Buka catatan kas <ArrowUpRight size={15} />
             </button>
           </div>
         </section>
       )}
-      {active === 'Kas' && (
+      {active === "Kas" && (
+        <FamilyCash
+          key={user?.familyId}
+          revision={cashRevision}
+          onRequestLoan={
+            canRequestLoan
+              ? () => {
+                  navigate("Pinjaman");
+                  setLoanFormOpen(true);
+                }
+              : undefined
+          }
+          onChanged={refreshFinancials}
+        />
+      )}
+      {active === "Kas" && (
         <section className="panel ledger-list">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">CATATAN KAS</p>
               <h2>Arus kas keluarga</h2>
               <p className="panel-description">
-                Catat pemasukan dan pengeluaran agar saldo pencairan selalu
-                akurat.
+                Catat pemasukan dan pengeluaran agar saldo keluarga tetap
+                akurat. Menampilkan hingga 100 catatan terbaru.
               </p>
             </div>
             {canManageLedger && (
@@ -1138,7 +1269,14 @@ function App() {
             )}
           </div>
           {ledgerLoading ? (
-            <p className="empty">Memuat catatan kas...</p>
+            <LoadingState label="Memuat catatan kas..." />
+          ) : ledgerError ? (
+            <Feedback tone="error">
+              {ledgerError}
+              <button className="secondary-button" onClick={loadLedger}>
+                Coba lagi
+              </button>
+            </Feedback>
           ) : ledger.length === 0 ? (
             <p className="empty">Belum ada catatan kas.</p>
           ) : (
@@ -1147,12 +1285,12 @@ function App() {
                 <div className="ledger-row" key={entry.id}>
                   <span
                     className={
-                      entry.direction === 'IN'
-                        ? 'ledger-icon incoming'
-                        : 'ledger-icon outgoing'
+                      entry.direction === "IN"
+                        ? "ledger-icon incoming"
+                        : "ledger-icon outgoing"
                     }
                   >
-                    {entry.direction === 'IN' ? (
+                    {entry.direction === "IN" ? (
                       <ArrowDownRight size={16} />
                     ) : (
                       <ArrowUpRight size={16} />
@@ -1161,16 +1299,31 @@ function App() {
                   <div>
                     <strong>{entry.description}</strong>
                     <small>
-                      {date.format(new Date(entry.occurredAt))} ·{' '}
-                      {entry.createdBy?.name ?? 'Pengelola'}
+                      {ledgerLabels[entry.type] ?? entry.type} · Tercatat
+                    </small>
+                    {entry.balanceBefore != null &&
+                      entry.balanceAfter != null && (
+                        <small>
+                          Saldo {rupiah(entry.balanceBefore)} →{" "}
+                          {rupiah(entry.balanceAfter)}
+                        </small>
+                      )}
+                    {entry.referenceId && (
+                      <small className="ledger-reference">
+                        Referensi: {entry.referenceId}
+                      </small>
+                    )}
+                    <small>
+                      {date.format(new Date(entry.occurredAt))} ·{" "}
+                      {entry.createdBy?.name ?? "Pengelola"}
                     </small>
                   </div>
                   <b
                     className={
-                      entry.direction === 'IN' ? 'positive' : 'negative'
+                      entry.direction === "IN" ? "positive" : "negative"
                     }
                   >
-                    {entry.direction === 'IN' ? '+' : '−'}{' '}
+                    {entry.direction === "IN" ? "+" : "−"}{" "}
                     {rupiah(entry.amount)}
                   </b>
                 </div>
@@ -1179,8 +1332,19 @@ function App() {
           )}
         </section>
       )}
-      {active === 'Ringkasan' && (
+      {active === "Ringkasan" && (
         <>
+          {!summary && !summaryError && (
+            <LoadingState label="Memuat ringkasan keluarga..." />
+          )}
+          {summaryError && (
+            <Feedback tone="error">
+              {summaryError}
+              <button className="secondary-button" onClick={refreshFinancials}>
+                Coba lagi
+              </button>
+            </Feedback>
+          )}
           <div className="section-heading">
             <div>
               <p className="eyebrow">POSISI DANA</p>
@@ -1192,7 +1356,7 @@ function App() {
               <p>SALDO BERSAMA</p>
               <small>Saldo tersedia</small>
               <strong>
-                {summary ? rupiah(summary.balance) : 'Belum tersedia'}
+                {summary ? rupiah(summary.balance) : "Belum tersedia"}
               </strong>
               <span className="positive">
                 <ArrowUpRight size={14} /> ruang dana aktif
@@ -1201,14 +1365,14 @@ function App() {
             <article className="metric">
               <p>Sedang dipinjamkan</p>
               <strong>
-                {summary ? rupiah(summary.loans) : 'Belum tersedia'}
+                {summary ? rupiah(summary.loans) : "Belum tersedia"}
               </strong>
               <small>berdasarkan data aktif</small>
             </article>
             <article className="metric">
-              <p>Cicilan bulan ini</p>
+              <p>Sisa cicilan belum lunas</p>
               <strong>
-                {summary ? rupiah(summary.installments) : 'Belum tersedia'}
+                {summary ? rupiah(summary.installments) : "Belum tersedia"}
               </strong>
               <small>dari jadwal pembayaran</small>
             </article>
@@ -1219,11 +1383,13 @@ function App() {
                 <p className="eyebrow">AKTIVITAS TERBARU</p>
                 <h2>Arus kas terbaru</h2>
               </div>
-              <button className="text-button" onClick={() => navigate('Kas')}>
+              <button className="text-button" onClick={() => navigate("Kas")}>
                 Lihat semua <ArrowUpRight size={15} />
               </button>
             </div>
-            {ledger.length === 0 ? (
+            {ledgerError ? (
+              <Feedback tone="error">{ledgerError}</Feedback>
+            ) : ledger.length === 0 ? (
               <p className="empty">Belum ada aktivitas kas.</p>
             ) : (
               <div className="ledger-rows">
@@ -1231,12 +1397,12 @@ function App() {
                   <div className="ledger-row" key={entry.id}>
                     <span
                       className={
-                        entry.direction === 'IN'
-                          ? 'ledger-icon incoming'
-                          : 'ledger-icon outgoing'
+                        entry.direction === "IN"
+                          ? "ledger-icon incoming"
+                          : "ledger-icon outgoing"
                       }
                     >
-                      {entry.direction === 'IN' ? (
+                      {entry.direction === "IN" ? (
                         <ArrowDownRight size={16} />
                       ) : (
                         <ArrowUpRight size={16} />
@@ -1248,10 +1414,10 @@ function App() {
                     </div>
                     <b
                       className={
-                        entry.direction === 'IN' ? 'positive' : 'negative'
+                        entry.direction === "IN" ? "positive" : "negative"
                       }
                     >
-                      {entry.direction === 'IN' ? '+' : '−'}{' '}
+                      {entry.direction === "IN" ? "+" : "−"}{" "}
                       {rupiah(entry.amount)}
                     </b>
                   </div>
@@ -1261,447 +1427,119 @@ function App() {
           </section>
         </>
       )}
-      {loanFormOpen && (
-        <div className="modal-backdrop">
-          <ValidatedForm className="modal" onSubmit={submitLoan}>
-            <button
-              type="button"
-              className="icon-button modal-close"
-              onClick={() => setLoanFormOpen(false)}
-              aria-label="Tutup form"
-            >
-              <X size={18} />
-            </button>
-            <p className="eyebrow">PENGAJUAN PINJAMAN</p>
-            <h2>Ajukan pinjaman</h2>
-            <label>
-              Jumlah pinjaman
-              <div className="currency-input">
-                <span>Rp</span>
-                <input
-                  required
-                  inputMode="numeric"
-                  value={rupiahInput(loanForm.amount)}
-                  onChange={(event) =>
-                    setLoanForm({
-                      ...loanForm,
-                      amount: event.target.value.replace(/\D/g, ''),
-                    })
-                  }
-                  placeholder="0"
-                />
-              </div>
-              <small className="field-help">
-                Nilai yang disimpan: angka rupiah tanpa format.
-              </small>
-            </label>
-            <label>
-              Tenor (bulan)
-              <input
-                required
-                type="number"
-                min="1"
-                max="60"
-                value={loanForm.tenorMonths}
-                onChange={(event) =>
-                  setLoanForm({ ...loanForm, tenorMonths: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              Tujuan
-              <textarea
-                required
-                minLength={3}
-                value={loanForm.purpose}
-                onChange={(event) =>
-                  setLoanForm({ ...loanForm, purpose: event.target.value })
-                }
-                placeholder="Untuk apa dana digunakan?"
-              />
-            </label>
-            <button className="primary" disabled={loading}>
-              {loading ? 'Mengirim...' : 'Kirim pengajuan'}
-            </button>
-          </ValidatedForm>
-        </div>
-      )}
       {ledgerFormOpen && (
-        <div className="modal-backdrop">
-          <ValidatedForm className="modal" onSubmit={submitLedger}>
-            <button
-              type="button"
-              className="icon-button modal-close"
-              onClick={() => setLedgerFormOpen(false)}
-              aria-label="Tutup form"
-            >
-              <X size={18} />
-            </button>
-            <p className="eyebrow">CATATAN KAS</p>
-            <h2>Catat arus kas</h2>
-            <label>
-              Jenis catatan
-              <select
-                value={ledgerForm.direction}
-                onChange={(event) =>
-                  setLedgerForm({
-                    ...ledgerForm,
-                    direction: event.target.value,
-                  })
-                }
-              >
-                <option value="IN">Pemasukan</option>
-                <option value="OUT">Pengeluaran</option>
-              </select>
-            </label>
-            <label>
-              Nominal
-              <div className="currency-input">
-                <span>Rp</span>
-                <input
-                  required
-                  inputMode="numeric"
-                  value={rupiahInput(ledgerForm.amount)}
+        <Modal
+          title="Catat arus kas"
+          onClose={() => setLedgerFormOpen(false)}
+          busy={loading}
+        >
+          <ValidatedForm onSubmit={submitLedger}>
+            {notice?.tone === "error" && (
+              <Feedback tone="error">{notice.message}</Feedback>
+            )}
+            <fieldset disabled={loading} className="form-fields">
+              <label>
+                Jenis catatan
+                <select
+                  value={ledgerForm.direction}
                   onChange={(event) =>
                     setLedgerForm({
                       ...ledgerForm,
-                      amount: event.target.value.replace(/\D/g, ''),
+                      direction: event.target.value,
                     })
                   }
-                  placeholder="0"
-                />
-              </div>
-            </label>
-            <label>
-              Keterangan
-              <textarea
-                required
-                minLength={3}
-                value={ledgerForm.description}
-                onChange={(event) =>
-                  setLedgerForm({
-                    ...ledgerForm,
-                    description: event.target.value,
-                  })
-                }
-                placeholder="Contoh: Setoran bulanan keluarga"
-              />
-            </label>
-            <button className="primary" disabled={loading}>
-              {loading ? 'Menyimpan...' : 'Simpan catatan'}
-            </button>
-          </ValidatedForm>
-        </div>
-      )}
-      {memberFormOpen && (
-        <div className="modal-backdrop">
-          <ValidatedForm
-            className="modal member-modal"
-            onSubmit={submitRegistration}
-          >
-            <button
-              type="button"
-              className="icon-button modal-close"
-              onClick={() => setMemberFormOpen(false)}
-              aria-label="Tutup form"
-            >
-              <X size={18} />
-            </button>
-            <p className="eyebrow">
-              {user.systemRole === 'SUPER_ADMIN'
-                ? 'ADMINISTRASI GLOBAL'
-                : 'RUANG KELUARGA'}
-            </p>
-            <h2>
-              {user.systemRole === 'SUPER_ADMIN'
-                ? 'Tambah akses keluarga'
-                : 'Tambah anggota'}
-            </h2>
-            <p className="modal-intro">
-              {user.systemRole === 'SUPER_ADMIN'
-                ? 'Pilih tindakan yang sesuai dengan status akun dan keluarga.'
-                : 'Buat akun baru untuk orang yang belum terdaftar di ruang keluarga ini.'}
-            </p>
-            {user.systemRole === 'SUPER_ADMIN' && (
-              <div className="mode-switch three">
-                <button
-                  type="button"
-                  className={memberMode === 'new-family' ? 'selected' : ''}
-                  onClick={() => {
-                    setMemberMode('new-family')
-                    setSelectedUser(null)
-                  }}
                 >
-                  Buat keluarga baru
-                </button>
-                <button
-                  type="button"
-                  className={memberMode === 'new-member' ? 'selected' : ''}
-                  onClick={() => {
-                    setMemberMode('new-member')
-                    setSelectedUser(null)
-                  }}
-                >
-                  Buat akun anggota
-                </button>
-                <button
-                  type="button"
-                  className={memberMode === 'existing-member' ? 'selected' : ''}
-                  onClick={() => setMemberMode('existing-member')}
-                >
-                  Hubungkan akun lama
-                </button>
-              </div>
-            )}
-            {user.systemRole === 'SUPER_ADMIN' &&
-            memberMode === 'existing-member' ? (
-              <>
-                <label>
-                  Cari akun yang sudah terdaftar
-                  <input
-                    required
-                    minLength={2}
-                    value={memberSearch}
-                    onChange={(event) =>
-                      searchExistingUsers(event.target.value)
-                    }
-                    placeholder="Nama, email, atau WhatsApp"
-                  />
-                </label>
-                {selectedUser && (
-                  <div className="selected-user">
-                    <strong>{selectedUser.name}</strong>
-                    <small>{selectedUser.email || selectedUser.phone}</small>
-                  </div>
-                )}
-                {userResults.map((candidate) => (
-                  <button
-                    type="button"
-                    className="user-result"
-                    key={candidate.id}
-                    onClick={() => {
-                      setSelectedUser(candidate)
-                      setUserResults([])
-                    }}
-                  >
-                    <strong>{candidate.name}</strong>
-                    <small>{candidate.email || candidate.phone}</small>
-                  </button>
-                ))}
-              </>
-            ) : (
-              <>
-                <label>
-                  Nama lengkap
-                  <input
-                    required
-                    minLength={2}
-                    value={memberForm.name}
-                    onChange={(event) =>
-                      setMemberForm({ ...memberForm, name: event.target.value })
-                    }
-                    placeholder="Contoh: Rani Kusuma"
-                  />
-                </label>
-                <label>
-                  Email <span className="optional">opsional</span>
-                  <input
-                    type="email"
-                    value={memberForm.email}
-                    onChange={(event) =>
-                      setMemberForm({
-                        ...memberForm,
-                        email: event.target.value,
-                      })
-                    }
-                    placeholder="nama@email.com"
-                  />
-                </label>
-                <label>
-                  Nomor WhatsApp
-                  <input
-                    required
-                    value={memberForm.phone}
-                    onChange={(event) =>
-                      setMemberForm({
-                        ...memberForm,
-                        phone: event.target.value,
-                      })
-                    }
-                    placeholder="081234567890"
-                  />
-                </label>
-                <label>
-                  Kata sandi sementara
-                  <div className="password-field">
-                    <PasswordInput
-                      required
-                      minLength={8}
-                      autoComplete="new-password"
-                      value={memberForm.password}
-                      onChange={(event) =>
-                        setMemberForm({
-                          ...memberForm,
-                          password: event.target.value,
-                        })
-                      }
-                      placeholder="Buat minimal 8 karakter"
-                    />
-                    <button
-                      type="button"
-                      className="generate-button"
-                      onClick={() =>
-                        setMemberForm({
-                          ...memberForm,
-                          password: temporaryPassword(),
-                        })
-                      }
-                    >
-                      Buat acak
-                    </button>
-                  </div>
-                  <small className="field-help">
-                    Gunakan hanya sebagai kredensial awal dan sampaikan melalui
-                    jalur aman.
-                  </small>
-                </label>
-                {memberMode === 'new-family' && (
-                  <>
-                    <label>
-                      Nama Admin Keluarga
-                      <input
-                        required
-                        value={memberForm.name}
-                        onChange={(event) =>
-                          setMemberForm({
-                            ...memberForm,
-                            name: event.target.value,
-                          })
-                        }
-                        placeholder="Contoh: Dwi Shinta"
-                      />
-                    </label>
-                    <label>
-                      Nama keluarga baru
-                      <input
-                        required
-                        value={memberForm.familyName}
-                        onChange={(event) =>
-                          setMemberForm({
-                            ...memberForm,
-                            familyName: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Kode keluarga
-                      <input
-                        required
-                        value={memberForm.familyCode}
-                        onChange={(event) =>
-                          setMemberForm({
-                            ...memberForm,
-                            familyCode: event.target.value.toUpperCase(),
-                          })
-                        }
-                        placeholder="CONTOH-KELUARGA"
-                      />
-                    </label>
-                    <label>
-                      Deskripsi keluarga
-                      <textarea
-                        value={memberForm.description}
-                        onChange={(event) =>
-                          setMemberForm({
-                            ...memberForm,
-                            description: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                  </>
-                )}
-              </>
-            )}{' '}
-            {memberMode !== 'new-family' && (
-              <label>
-                Peran dalam keluarga
-                <select
-                  value={memberForm.role}
-                  onChange={(event) =>
-                    setMemberForm({ ...memberForm, role: event.target.value })
-                  }
-                >
-                  <option value="MEMBER">Anggota</option>
-                  <option value="ADMIN">Admin keluarga</option>
+                  <option value="IN">Pemasukan</option>
+                  <option value="OUT">Pengeluaran</option>
                 </select>
               </label>
-            )}
-            {memberMode !== 'new-family' &&
-              user.systemRole === 'SUPER_ADMIN' && (
-                <label>
-                  Keluarga tujuan
-                  <div className="family-picker">
-                    <input
-                      value={familySearch}
-                      onChange={(event) => setFamilySearch(event.target.value)}
-                      placeholder="Cari nama atau kode keluarga"
-                    />
-                    {familySearch && (
-                      <div className="family-results">
-                        {filteredFamilies.length === 0 ? (
-                          <small>Tidak ada keluarga ditemukan.</small>
-                        ) : (
-                          filteredFamilies.map((family) => (
-                            <button
-                              type="button"
-                              key={family.id}
-                              className={
-                                memberForm.familyId === family.id
-                                  ? 'selected'
-                                  : ''
-                              }
-                              onClick={() => {
-                                setMemberForm({
-                                  ...memberForm,
-                                  familyId: family.id,
-                                })
-                                setFamilySearch(family.name)
-                              }}
-                            >
-                              <strong>{family.name}</strong>
-                              <small>{family.code}</small>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {memberForm.familyId && (
-                    <small className="field-help">
-                      Keluarga dipilih:{' '}
-                      {
-                        families.find(
-                          (family) => family.id === memberForm.familyId,
-                        )?.name
-                      }
-                    </small>
-                  )}
-                </label>
-              )}
-            {memberMode !== 'new-family' && (
-              <button className="primary" disabled={loading}>
-                {loading ? 'Menyimpan...' : 'Simpan akses'}
+              <CurrencyInput
+                label="Nominal"
+                required
+                value={ledgerForm.amount}
+                onChange={(amount) => setLedgerForm({ ...ledgerForm, amount })}
+              />
+              <label>
+                Keterangan
+                <textarea
+                  required
+                  minLength={3}
+                  value={ledgerForm.description}
+                  onChange={(event) =>
+                    setLedgerForm({
+                      ...ledgerForm,
+                      description: event.target.value,
+                    })
+                  }
+                  placeholder="Contoh: Setoran bulanan keluarga"
+                />
+              </label>
+            </fieldset>
+            <div className="dialog-actions">
+              <button type="submit" className="primary" disabled={loading}>
+                {loading ? "Menyimpan..." : "Simpan catatan"}
               </button>
-            )}
+            </div>
           </ValidatedForm>
-        </div>
+        </Modal>
+      )}
+      {editingMember && (
+        <EditMemberRole
+          member={editingMember}
+          onClose={() => setEditingMember(null)}
+          onSaved={(role) => {
+            if (editingMember.user.id === user.id) {
+              setUser({
+                ...user,
+                familyRole: role,
+                families: user.families?.map((family) =>
+                  family.id === editingMember.family?.id
+                    ? { ...family, role }
+                    : family,
+                ),
+              });
+            }
+            setEditingMember(null);
+            showNotice("Peran anggota berhasil diperbarui.");
+            void loadMembers();
+          }}
+        />
+      )}
+      {loanFormOpen && canRequestLoan && (
+        <FundTransactionDialog
+          intent="loan-requests"
+          onClose={() => setLoanFormOpen(false)}
+          onSaved={(message) => {
+            setLoanFormOpen(false);
+            showNotice(message);
+            refreshFinancials();
+            void loadLoans();
+          }}
+        />
+      )}
+      {memberFormOpen && (
+        <RegistrationDialog
+          user={user}
+          onClose={() => setMemberFormOpen(false)}
+          onCreated={(data, message) => {
+            setMemberFormOpen(false);
+            showNotice(message);
+            if (user.systemRole === "SUPER_ADMIN") {
+              setFamilies((current) =>
+                current.some((item) => item.id === data.family.id)
+                  ? current
+                  : [...current, data.family],
+              );
+              setMemberFamilyId(data.family.id);
+            }
+            void loadMembers(data.family.id);
+          }}
+        />
       )}
       <footer>
         © 2026 Dana Keluarga <span>◈ Data ruang ini hanya untuk keluarga</span>
       </footer>
     </AppShell>
-  )
+  );
 }
-export default App
+export default App;

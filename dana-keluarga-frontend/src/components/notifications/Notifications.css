@@ -42,7 +42,7 @@
   align-items: center;
   gap: 7px;
 }
-.inbox-filters button[aria-pressed='true'] {
+.inbox-filters button[aria-pressed="true"] {
   background: #fffdf9;
   box-shadow: 0 2px 4px #28262b10;
   color: #984831;
@@ -162,17 +162,6 @@
   font-size: 13px;
   line-height: 1.7;
 }
-.inbox-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 22px;
-}
-.inbox-pagination > span {
-  font-size: 12px;
-  color: #736977;
-}
 @media (max-width: 550px) {
   .inbox-heading {
     flex-wrap: wrap;
@@ -184,13 +173,5 @@
   .inbox-item-icon {
     width: 29px;
     height: 29px;
-  }
-  .inbox-pagination {
-    flex-wrap: wrap;
-  }
-  .inbox-pagination > span {
-    order: 3;
-    width: 100%;
-    text-align: center;
   }
 }

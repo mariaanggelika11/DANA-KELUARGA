@@ -1,156 +1,171 @@
-import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, GitBranch, Plus, Save, Trash2 } from 'lucide-react'
-import { api } from '../../lib/api-client'
-import { Feedback } from '../../components/Feedback'
-import { ValidatedForm } from '../../components/ValidatedForm'
-import './approvals.css'
+import { LoadingState } from "../../components/LoadingState";
+import { SearchableSelect } from "../../components/SearchableSelect";
+import { useEffect, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  GitBranch,
+  Plus,
+  Save,
+  Trash2,
+} from "lucide-react";
+import { api } from "../../lib/api-client";
+import { useConfirmation } from "../../hooks/useConfirmation";
+import { Feedback } from "../../components/Feedback";
+import { ValidatedForm } from "../../components/ValidatedForm";
+import "./approvals.css";
 
-type Person = { id: string; name: string; email: string | null }
+type Person = { id: string; name: string; email: string | null };
 type Assignment = {
-  userId: string
-  permission: string
-  sequence: number
-  user: Person
-}
+  userId: string;
+  permission: string;
+  sequence: number;
+  user: Person;
+};
 type FamilyOption = {
-  id: string
-  name: string
-  code: string
-  approvalPolicies: { version: number }[]
-}
+  id: string;
+  name: string;
+  code: string;
+  approvalPolicies: { version: number }[];
+};
 type PolicyData = {
-  family: FamilyOption
-  policy: { version: number; assignments: Assignment[] } | null
-  members: { role: string; user: Person }[]
+  family: FamilyOption;
+  policy: { version: number; assignments: Assignment[] } | null;
+  members: { role: string; user: Person }[];
   history: {
-    id: string
-    version: number
-    reason: string
-    active: boolean
-    createdAt: string
-    assignments: Assignment[]
-  }[]
-}
+    id: string;
+    version: number;
+    reason: string;
+    active: boolean;
+    createdAt: string;
+    assignments: Assignment[];
+  }[];
+};
 
 export function HierarchySetup({
   onDirtyChange,
 }: {
-  onDirtyChange: (dirty: boolean) => void
+  onDirtyChange: (dirty: boolean) => void;
 }) {
-  const [families, setFamilies] = useState<FamilyOption[]>([])
-  const [familyId, setFamilyId] = useState('')
-  const [data, setData] = useState<PolicyData | null>(null)
-  const [makers, setMakers] = useState<string[]>([])
-  const [approvers, setApprovers] = useState<string[]>([''])
-  const [releaser, setReleaser] = useState('')
-  const [reason, setReason] = useState('')
-  const [dirty, setDirty] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [revision, setRevision] = useState(0)
+  const confirm = useConfirmation();
+  const [families, setFamilies] = useState<FamilyOption[]>([]);
+  const [familyId, setFamilyId] = useState("");
+  const [data, setData] = useState<PolicyData | null>(null);
+  const [makers, setMakers] = useState<string[]>([]);
+  const [approvers, setApprovers] = useState<string[]>([""]);
+  const [releaser, setReleaser] = useState("");
+  const [reason, setReason] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
-    onDirtyChange(dirty)
-    return () => onDirtyChange(false)
-  }, [dirty, onDirtyChange])
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
   useEffect(() => {
-    const controller = new AbortController()
-    api<{ data: FamilyOption[] }>('/approval-policies/families', {
+    const controller = new AbortController();
+    api<{ data: FamilyOption[] }>("/approval-policies/families", {
       signal: controller.signal,
     })
       .then((result) => {
         if (!controller.signal.aborted) {
-          setFamilies(result.data)
-          setFamilyId((id) => id || result.data[0]?.id || '')
-          if (!result.data.length) setLoading(false)
+          setFamilies(result.data);
+          setFamilyId((id) => id || result.data[0]?.id || "");
+          if (!result.data.length) setLoading(false);
         }
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted) {
-          setError(err instanceof Error ? err.message : 'Keluarga gagal dimuat')
-          setLoading(false)
+          setError(
+            err instanceof Error ? err.message : "Keluarga gagal dimuat",
+          );
+          setLoading(false);
         }
-      })
-    return () => controller.abort()
-  }, [revision])
+      });
+    return () => controller.abort();
+  }, [revision]);
   useEffect(() => {
-    if (!familyId) return
-    const controller = new AbortController()
+    if (!familyId) return;
+    const controller = new AbortController();
     api<{ data: PolicyData }>(`/approval-policies/families/${familyId}`, {
       signal: controller.signal,
     })
       .then(({ data: result }) => {
-        if (controller.signal.aborted) return
-        setData(result)
-        const assignments = result.policy?.assignments ?? []
+        if (controller.signal.aborted) return;
+        setData(result);
+        const assignments = result.policy?.assignments ?? [];
         setMakers(
           assignments
-            .filter((item) => item.permission === 'MAKER')
+            .filter((item) => item.permission === "MAKER")
             .map((item) => item.userId),
-        )
+        );
         const ordered = assignments
-          .filter((item) => item.permission === 'APPROVER')
+          .filter((item) => item.permission === "APPROVER")
           .sort((a, b) => a.sequence - b.sequence)
-          .map((item) => item.userId)
-        setApprovers(ordered.length ? ordered : [''])
+          .map((item) => item.userId);
+        setApprovers(ordered.length ? ordered : [""]);
         setReleaser(
-          assignments.find((item) => item.permission === 'RELEASER')?.userId ??
-            '',
-        )
-        setReason('')
-        setDirty(false)
+          assignments.find((item) => item.permission === "RELEASER")?.userId ??
+            "",
+        );
+        setReason("");
+        setDirty(false);
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted)
-          setError(err instanceof Error ? err.message : 'Hirarki gagal dimuat')
+          setError(err instanceof Error ? err.message : "Hirarki gagal dimuat");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
-      })
-    return () => controller.abort()
-  }, [familyId, revision])
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [familyId, revision]);
   useEffect(() => {
-    if (!dirty) return
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
   function move(index: number, direction: number) {
     setApprovers((current) => {
-      const copy = [...current]
-      ;[copy[index], copy[index + direction]] = [
+      const copy = [...current];
+      [copy[index], copy[index + direction]] = [
         copy[index + direction],
         copy[index],
-      ]
-      return copy
-    })
-    setDirty(true)
+      ];
+      return copy;
+    });
+    setDirty(true);
   }
   async function save(event: React.FormEvent) {
-    event.preventDefault()
-    if (saving || !data || data.family.id !== familyId) return
+    event.preventDefault();
+    if (saving || !data || data.family.id !== familyId) return;
     if (!makers.length || approvers.some((id) => !id) || !releaser) {
-      setError('Pilih minimal satu Maker, seluruh approver, dan satu Releaser.')
-      return
+      setError(
+        "Pilih minimal satu Maker, seluruh approver, dan satu Releaser.",
+      );
+      return;
     }
     if (
       new Set(approvers).size !== approvers.length ||
       approvers.includes(releaser)
     ) {
       setError(
-        'Approver tidak boleh berulang dan Releaser harus berbeda dari seluruh approver.',
-      )
-      return
+        "Approver tidak boleh berulang dan Releaser harus berbeda dari seluruh approver.",
+      );
+      return;
     }
-    setSaving(true)
-    setError('')
-    setSuccess('')
+    setSaving(true);
+    setError("");
+    setSuccess("");
     try {
       const result = await api<{ message: string }>(
         `/approval-policies/families/${familyId}`,
         {
-          method: 'PUT',
+          method: "PUT",
           body: JSON.stringify({
             expectedVersion: data.policy?.version ?? 0,
             makerIds: makers,
@@ -159,15 +174,15 @@ export function HierarchySetup({
             reason,
           }),
         },
-      )
-      setSuccess(result.message)
-      setDirty(false)
-      setLoading(true)
-      setRevision((value) => value + 1)
+      );
+      setSuccess(result.message);
+      setDirty(false);
+      setLoading(true);
+      setRevision((value) => value + 1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Hirarki gagal disimpan')
+      setError(err instanceof Error ? err.message : "Hirarki gagal disimpan");
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
   return (
@@ -181,35 +196,33 @@ export function HierarchySetup({
             dan mencairkan dana.
           </p>
         </div>
-        <label>
-          Keluarga
-          <select
-            value={familyId}
-            disabled={saving}
-            onChange={(event) => {
-              if (
-                dirty &&
-                !window.confirm(
-                  'Perubahan belum disimpan. Pindah keluarga dan abaikan perubahan?',
-                )
-              )
-                return
-              setFamilyId(event.target.value)
-              setData(null)
-              setLoading(Boolean(event.target.value))
-              setError('')
-              setSuccess('')
-              setDirty(false)
-            }}
-          >
-            <option value="">Pilih keluarga</option>
-            {families.map((family) => (
-              <option key={family.id} value={family.id}>
-                {family.name} · {family.code}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SearchableSelect
+          label="Keluarga"
+          value={familyId}
+          disabled={saving}
+          options={families.map((family) => ({
+            value: family.id,
+            label: `${family.name} · ${family.code}`,
+          }))}
+          onChange={async (nextFamily) => {
+            if (
+              dirty &&
+              !(await confirm({
+                title: "Pindah keluarga?",
+                message: "Perubahan hirarki yang belum disimpan akan hilang.",
+                confirmLabel: "Pindah keluarga",
+                destructive: true,
+              }))
+            )
+              return;
+            setFamilyId(nextFamily);
+            setData(null);
+            setLoading(Boolean(nextFamily));
+            setError("");
+            setSuccess("");
+            setDirty(false);
+          }}
+        />
       </div>
       {error && (
         <Feedback tone="error">
@@ -217,9 +230,9 @@ export function HierarchySetup({
           <button
             className="secondary-button"
             onClick={() => {
-              setError('')
-              setLoading(true)
-              setRevision((value) => value + 1)
+              setError("");
+              setLoading(true);
+              setRevision((value) => value + 1);
             }}
           >
             Muat ulang
@@ -228,7 +241,7 @@ export function HierarchySetup({
       )}
       {success && <Feedback tone="success">{success}</Feedback>}
       {loading ? (
-        <p role="status">Memuat konfigurasi...</p>
+        <LoadingState label="Memuat konfigurasi..." />
       ) : !families.length ? (
         <Feedback tone="info">Belum ada keluarga yang dapat diatur.</Feedback>
       ) : (
@@ -246,7 +259,7 @@ export function HierarchySetup({
                 <span className="status">
                   {data.policy
                     ? `Versi ${data.policy.version}`
-                    : 'Belum dikonfigurasi'}
+                    : "Belum dikonfigurasi"}
                 </span>
               </div>
               <fieldset disabled={saving}>
@@ -266,8 +279,8 @@ export function HierarchySetup({
                             event.target.checked
                               ? [...current, user.id]
                               : current.filter((id) => id !== user.id),
-                          )
-                          setDirty(true)
+                          );
+                          setDirty(true);
                         }}
                       />
                       <span>
@@ -310,8 +323,8 @@ export function HierarchySetup({
                               current.map((value, position) =>
                                 position === index ? event.target.value : value,
                               ),
-                            )
-                            setDirty(true)
+                            );
+                            setDirty(true);
                           }}
                         >
                           <option value="">Pilih approver</option>
@@ -361,8 +374,8 @@ export function HierarchySetup({
                         onClick={() => {
                           setApprovers((current) =>
                             current.filter((_, position) => position !== index),
-                          )
-                          setDirty(true)
+                          );
+                          setDirty(true);
                         }}
                       >
                         <Trash2 size={18} />
@@ -375,8 +388,8 @@ export function HierarchySetup({
                   className="secondary-button"
                   disabled={approvers.length >= 10}
                   onClick={() => {
-                    setApprovers((current) => [...current, ''])
-                    setDirty(true)
+                    setApprovers((current) => [...current, ""]);
+                    setDirty(true);
                   }}
                 >
                   <Plus size={16} />
@@ -391,8 +404,8 @@ export function HierarchySetup({
                     required
                     value={releaser}
                     onChange={(event) => {
-                      setReleaser(event.target.value)
-                      setDirty(true)
+                      setReleaser(event.target.value);
+                      setDirty(true);
                     }}
                   >
                     <option value="">Pilih releaser</option>
@@ -424,8 +437,8 @@ export function HierarchySetup({
                   maxLength={500}
                   value={reason}
                   onChange={(event) => {
-                    setReason(event.target.value)
-                    setDirty(true)
+                    setReason(event.target.value);
+                    setDirty(true);
                   }}
                   placeholder="Contoh: Penetapan petugas keluarga berdasarkan kesepakatan bersama"
                 />
@@ -435,13 +448,16 @@ export function HierarchySetup({
                   Ada perubahan yang belum disimpan.
                 </p>
               )}
-              <button
-                className="primary"
-                disabled={saving || !data.members.length}
-              >
-                <Save size={17} />
-                {saving ? 'Menyimpan...' : 'Simpan hirarki'}
-              </button>
+              <div className="dialog-actions">
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={saving || !data.members.length}
+                >
+                  <Save size={17} />
+                  {saving ? "Menyimpan..." : "Simpan hirarki"}
+                </button>
+              </div>
             </ValidatedForm>
             <section className="panel hierarchy-history">
               <h3>Riwayat konfigurasi</h3>
@@ -453,26 +469,26 @@ export function HierarchySetup({
                     <li key={item.id}>
                       <strong>
                         Versi {item.version}
-                        {item.active ? ' · Aktif' : ''}
+                        {item.active ? " · Aktif" : ""}
                       </strong>
                       <span>
-                        {new Date(item.createdAt).toLocaleString('id-ID', {
-                          timeZone: 'Asia/Jakarta',
-                        })}{' '}
+                        {new Date(item.createdAt).toLocaleString("id-ID", {
+                          timeZone: "Asia/Jakarta",
+                        })}{" "}
                         WIB
                       </span>
                       <p>{item.reason}</p>
                       <p>
                         {item.assignments
                           .filter(
-                            (assignment) => assignment.permission !== 'MAKER',
+                            (assignment) => assignment.permission !== "MAKER",
                           )
                           .sort((a, b) => a.sequence - b.sequence)
                           .map(
                             (assignment) =>
-                              `${assignment.sequence}. ${assignment.user.name}${assignment.permission === 'RELEASER' ? ' (Releaser)' : ''}`,
+                              `${assignment.sequence}. ${assignment.user.name}${assignment.permission === "RELEASER" ? " (Releaser)" : ""}`,
                           )
-                          .join(' → ')}
+                          .join(" → ")}
                       </p>
                     </li>
                   ))}
@@ -487,5 +503,5 @@ export function HierarchySetup({
         )
       )}
     </section>
-  )
+  );
 }

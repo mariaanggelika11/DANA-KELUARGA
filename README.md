@@ -1,6 +1,6 @@
 # Dana Keluarga
 
-Modular monolith untuk pengelolaan kas keluarga: dashboard, ledger, anggota, pinjaman, cicilan, pembayaran, target dana, notifikasi, audit, dan integrasi WhatsApp/payment gateway.
+Modular monolith untuk pengelolaan kas keluarga: dashboard, ledger, anggota, pinjaman, cicilan, pembayaran, target dana, notifikasi, audit, dan email/payment gateway.
 
 ## Struktur
 
@@ -23,8 +23,8 @@ CREATE DATABASE dana_keluarga OWNER your_database_user ENCODING 'UTF8';
 
 ## Status implementasi
 
-Pengelolaan anggota, kas, pengajuan/persetujuan/pencairan pinjaman, dan jadwal cicilan tersedia. Alur notifikasi WhatsApp serta pembayaran kini memiliki **mode simulasi** dengan antrean persisten, persetujuan penerima, pengingat H-3/hari H, halaman cicilan, dan riwayat pesan.
+Notifikasi menggunakan outbox email dengan retry. Pengiriman nyata memerlukan konfigurasi SMTP; pembayaran online masih sandbox.
 
-Pengiriman WhatsApp nyata dan payment gateway belum diaktifkan. Tidak ada QRIS yang dapat dibayar pada mode simulasi. Konfirmasi simulasi hanya tersedia untuk pengelola pada lingkungan pengembangan dan tetap mengubah catatan database pengembangan.
+Notifikasi menggunakan outbox email dengan retry. Pengiriman nyata memerlukan konfigurasi SMTP; pembayaran online masih sandbox.
 
-Lihat [panduan WhatsApp dan pembayaran simulasi](docs/whatsapp-simulation.md) untuk migration, konfigurasi, aturan jadwal, pengujian, dan batas implementasi. Migration baru harus diterapkan pada database tujuan sebelum menjalankan kode ini.
+Lihat [panduan Kas Keluarga dan email](docs/FAMILY_CASH.md) untuk migration, konfigurasi SMTP, dan pengujian. Pembayaran online masih menggunakan sandbox.

@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Prisma } from '@prisma/client';
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
 const mocks = vi.hoisted(() => ({
   db: {
     $transaction: vi.fn(),
     $queryRaw: vi.fn(),
+    emailMessage: { createMany: vi.fn() },
+    fundRequest: { aggregate: vi.fn() },
     approvalPolicy: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     approvalRequest: {
       create: vi.fn(),
+      findUnique: vi.fn(),
       findUniqueOrThrow: vi.fn(),
       update: vi.fn(),
     },
@@ -21,25 +24,25 @@ const mocks = vi.hoisted(() => ({
   },
   queue: vi.fn(),
 }));
-vi.mock('../src/config/prisma', () => ({ prisma: mocks.db }));
-vi.mock('../src/modules/notifications/notification.service', () => ({
+vi.mock("../src/config/prisma", () => ({ prisma: mocks.db }));
+vi.mock("../src/modules/notifications/notification.service", () => ({
   queueLoanEvent: mocks.queue,
 }));
 import {
   actOnRequest,
   createLoanApproval,
-} from '../src/modules/approvals/approval.service';
-import { saveFamilyPolicy } from '../src/modules/approvals/approval-policy.service';
+} from "../src/modules/approvals/approval.service";
+import { saveFamilyPolicy } from "../src/modules/approvals/approval-policy.service";
 import {
   policySchema,
   assertAssignedActor,
   requireOperationalActor,
-} from '../src/modules/approvals/approval.rules';
+} from "../src/modules/approvals/approval.rules";
 
 const db = mocks.db;
 const tx = db as unknown as Prisma.TransactionClient;
 const uid = (n: number) =>
-  `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const familyId = uid(1),
   makerId = uid(2),
   dani = uid(3),
@@ -49,29 +52,29 @@ const familyId = uid(1),
 const actor = (sub = dani) => ({
   sub,
   familyId,
-  systemRole: 'USER',
-  familyRole: 'MEMBER',
+  systemRole: "USER",
+  familyRole: "MEMBER",
 });
 const input = {
   expectedVersion: 0,
   makerIds: [makerId],
   approverIds: [dani, danang],
   releaserId: releaser,
-  reason: 'Kesepakatan keluarga',
+  reason: "Kesepakatan keluarga",
 };
 const loan = {
   id: uid(7),
   familyId,
   borrowerId: makerId,
   principalAmount: new Prisma.Decimal(3000000),
-  status: 'PENDING',
+  status: "PENDING",
   tenorMonths: 6,
 };
 const assignments = [
-  { permission: 'MAKER', userId: makerId, sequence: 1 },
-  { permission: 'APPROVER', userId: dani, sequence: 1 },
-  { permission: 'APPROVER', userId: danang, sequence: 2 },
-  { permission: 'RELEASER', userId: releaser, sequence: 3 },
+  { permission: "MAKER", userId: makerId, sequence: 1 },
+  { permission: "APPROVER", userId: dani, sequence: 1 },
+  { permission: "APPROVER", userId: danang, sequence: 2 },
+  { permission: "RELEASER", userId: releaser, sequence: 3 },
 ];
 function snapshot(stage = 1) {
   return {
@@ -81,22 +84,24 @@ function snapshot(stage = 1) {
     makerId,
     amount: loan.principalAmount,
     currentStep: stage,
-    status: stage === 3 ? 'PENDING_RELEASE' : 'PENDING_APPROVAL',
-    loan: { ...loan, status: stage === 3 ? 'APPROVED' : 'PENDING' },
-    steps: assignments
-      .slice(1)
-      .map((item) => ({
-        id: uid(10 + item.sequence),
-        requestId,
-        sequence: item.sequence,
-        assignedUserId: item.userId,
-        permission: item.permission,
-        status: item.sequence < stage ? 'APPROVED' : 'WAITING',
-      })),
+    status: stage === 3 ? "PENDING_RELEASE" : "PENDING_APPROVAL",
+    loan: { ...loan, status: stage === 3 ? "APPROVED" : "PENDING" },
+    steps: assignments.slice(1).map((item) => ({
+      id: uid(10 + item.sequence),
+      requestId,
+      sequence: item.sequence,
+      assignedUserId: item.userId,
+      permission: item.permission,
+      status: item.sequence < stage ? "APPROVED" : "WAITING",
+    })),
   };
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  db.fundRequest.aggregate.mockResolvedValue({
+    _sum: { amount: new Prisma.Decimal(0) },
+  });
+  db.ledgerEntry.create.mockResolvedValue({ id: uid(80) });
   db.$transaction.mockImplementation((callback) => callback(db));
   db.$queryRaw.mockResolvedValue([{ id: requestId }]);
   db.approvalPolicy.findFirst.mockResolvedValue({
@@ -109,64 +114,64 @@ beforeEach(() => {
   db.approvalRequest.findUniqueOrThrow.mockResolvedValue(snapshot());
   db.familyMember.count.mockResolvedValue(3);
   db.familyMember.findUnique.mockResolvedValue({
-    status: 'ACTIVE',
-    role: 'ADMIN',
-    user: { isActive: true, systemRole: 'USER' },
+    status: "ACTIVE",
+    role: "ADMIN",
+    user: { isActive: true, systemRole: "USER" },
   });
   db.familyMember.findMany.mockResolvedValue(
     [makerId, dani, danang, releaser].map((userId) => ({ userId })),
   );
   db.ledgerEntry.groupBy.mockResolvedValue([
-    { direction: 'IN', _sum: { amount: new Prisma.Decimal(4000000) } },
+    { direction: "IN", _sum: { amount: new Prisma.Decimal(4000000) } },
   ]);
 });
 
-describe('policy validation and authorization', () => {
-  it('accepts Dani then Danang with an independent releaser', () =>
+describe("policy validation and authorization", () => {
+  it("accepts Dani then Danang with an independent releaser", () =>
     expect(policySchema.parse(input).approverIds).toEqual([dani, danang]));
   it.each([
     { approverIds: [] },
     { approverIds: [dani, dani] },
     { releaserId: dani },
     { makerIds: [] },
-    { reason: ' ' },
+    { reason: " " },
     { expectedVersion: -1 },
-  ])('rejects invalid configuration %j', (override) =>
+  ])("rejects invalid configuration %j", (override) =>
     expect(policySchema.safeParse({ ...input, ...override }).success).toBe(
       false,
     ),
   );
-  it('rejects cross-family admin configuration', async () => {
+  it("rejects cross-family admin configuration", async () => {
     await expect(
       saveFamilyPolicy(actor(), uid(90), input),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(db.$transaction).not.toHaveBeenCalled();
   });
-  it('rejects actors absent from the active family', async () => {
+  it("rejects actors absent from the active family", async () => {
     db.approvalPolicy.findFirst.mockResolvedValue(null);
     db.familyMember.findMany.mockResolvedValue([{ userId: makerId }]);
     await expect(
       saveFamilyPolicy(
-        { ...actor(), systemRole: 'SUPER_ADMIN' },
+        { ...actor(), systemRole: "SUPER_ADMIN" },
         familyId,
         input,
       ),
-    ).rejects.toMatchObject({ code: 'INVALID_ASSIGNMENT' });
+    ).rejects.toMatchObject({ code: "INVALID_ASSIGNMENT" });
     expect(db.approvalPolicy.create).not.toHaveBeenCalled();
   });
-  it('rejects a stale editor version before replacing the policy', async () => {
+  it("rejects a stale editor version before replacing the policy", async () => {
     await expect(
       saveFamilyPolicy(
-        { ...actor(), systemRole: 'SUPER_ADMIN' },
+        { ...actor(), systemRole: "SUPER_ADMIN" },
         familyId,
         input,
       ),
-    ).rejects.toMatchObject({ code: 'POLICY_VERSION_CONFLICT' });
+    ).rejects.toMatchObject({ code: "POLICY_VERSION_CONFLICT" });
     expect(db.approvalPolicy.update).not.toHaveBeenCalled();
   });
-  it('creates a new audited version without editing existing request snapshots', async () => {
+  it("creates a new audited version without editing existing request snapshots", async () => {
     await saveFamilyPolicy(
-      { ...actor(), systemRole: 'SUPER_ADMIN' },
+      { ...actor(), systemRole: "SUPER_ADMIN" },
       familyId,
       { ...input, expectedVersion: 1 },
     );
@@ -185,18 +190,18 @@ describe('policy validation and authorization', () => {
     expect(db.approvalRequest.update).not.toHaveBeenCalled();
     expect(db.auditLog.create).toHaveBeenCalledTimes(1);
   });
-  it('never gives Super Admin financial bypass', () => {
+  it("never gives Super Admin financial bypass", () => {
     expect(() =>
       requireOperationalActor(
-        { ...actor(), systemRole: 'SUPER_ADMIN' },
+        { ...actor(), systemRole: "SUPER_ADMIN" },
         familyId,
       ),
-    ).toThrow('Super Admin');
+    ).toThrow("Super Admin");
   });
 });
 
-describe('submission snapshots', () => {
-  it('snapshots ordered actors and notifies only the first approver', async () => {
+describe("submission snapshots", () => {
+  it("snapshots ordered actors and notifies only the first approver", async () => {
     await createLoanApproval(tx, actor(makerId), loan);
     const data = db.approvalRequest.create.mock.calls[0][0].data;
     expect(
@@ -206,7 +211,7 @@ describe('submission snapshots', () => {
     ).toEqual([dani, danang, releaser]);
     expect(data.actions.create).toMatchObject({
       actorId: makerId,
-      action: 'SUBMIT',
+      action: "SUBMIT",
     });
     expect(
       db.notification.create.mock.calls.map(([args]) => args.data.userId),
@@ -214,50 +219,50 @@ describe('submission snapshots', () => {
     expect(mocks.queue).toHaveBeenCalledWith(
       tx,
       loan.id,
-      'LOAN_REQUESTED',
+      "LOAN_REQUESTED",
       false,
     );
   });
-  it('rejects makers not assigned in the policy', async () => {
+  it("rejects makers not assigned in the policy", async () => {
     await expect(
       createLoanApproval(tx, actor(uid(90)), loan),
-    ).rejects.toMatchObject({ code: 'NOT_ASSIGNED_AS_MAKER' });
+    ).rejects.toMatchObject({ code: "NOT_ASSIGNED_AS_MAKER" });
   });
-  it('rejects a borrower appearing as an approver', async () => {
+  it("rejects a borrower appearing as an approver", async () => {
     await expect(
       createLoanApproval(tx, actor(makerId), { ...loan, borrowerId: dani }),
-    ).rejects.toMatchObject({ code: 'SELF_APPROVAL_NOT_ALLOWED' });
+    ).rejects.toMatchObject({ code: "SELF_APPROVAL_NOT_ALLOWED" });
   });
-  it('rejects inactive actors before creating a snapshot', async () => {
+  it("rejects inactive actors before creating a snapshot", async () => {
     db.familyMember.count.mockResolvedValue(2);
     await expect(
       createLoanApproval(tx, actor(makerId), loan),
-    ).rejects.toMatchObject({ code: 'INACTIVE_WORKFLOW_ACTOR' });
+    ).rejects.toMatchObject({ code: "INACTIVE_WORKFLOW_ACTOR" });
     expect(db.approvalRequest.create).not.toHaveBeenCalled();
   });
-  it('rejects malformed policies without a releaser', async () => {
+  it("rejects malformed policies without a releaser", async () => {
     db.approvalPolicy.findFirst.mockResolvedValue({
       id: uid(8),
       assignments: assignments.slice(0, 3),
     });
     await expect(
       createLoanApproval(tx, actor(makerId), loan),
-    ).rejects.toMatchObject({ code: 'WORKFLOW_INVALID' });
+    ).rejects.toMatchObject({ code: "WORKFLOW_INVALID" });
   });
 });
 
-describe('sequential approval and disbursement', () => {
-  it('cannot skip Dani and approve as Danang', async () => {
+describe("sequential approval and disbursement", () => {
+  it("cannot skip Dani and approve as Danang", async () => {
     await expect(
-      actOnRequest(actor(danang), requestId, 'APPROVE'),
-    ).rejects.toMatchObject({ code: 'NOT_ASSIGNED_AS_APPROVER' });
+      actOnRequest(actor(danang), requestId, "APPROVE"),
+    ).rejects.toMatchObject({ code: "NOT_ASSIGNED_AS_APPROVER" });
     expect(db.approvalStep.update).not.toHaveBeenCalled();
   });
-  it('advances Dani to Danang without changing the loan to approved or posting money', async () => {
-    await actOnRequest(actor(dani), requestId, 'APPROVE');
+  it("advances Dani to Danang without changing the loan to approved or posting money", async () => {
+    await actOnRequest(actor(dani), requestId, "APPROVE");
     expect(db.approvalRequest.update).toHaveBeenCalledWith({
       where: { id: requestId },
-      data: { currentStep: 2, status: 'PENDING_APPROVAL' },
+      data: { currentStep: 2, status: "PENDING_APPROVAL" },
     });
     expect(db.notification.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -268,53 +273,53 @@ describe('sequential approval and disbursement', () => {
     expect(db.ledgerEntry.create).not.toHaveBeenCalled();
     expect(db.loanInstallment.createMany).not.toHaveBeenCalled();
   });
-  it('final approval waits for an independent releaser', async () => {
+  it("final approval waits for an independent releaser", async () => {
     db.approvalRequest.findUniqueOrThrow.mockResolvedValue(snapshot(2));
-    await actOnRequest(actor(danang), requestId, 'APPROVE');
+    await actOnRequest(actor(danang), requestId, "APPROVE");
     expect(db.loan.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'APPROVED' }),
+        data: expect.objectContaining({ status: "APPROVED" }),
       }),
     );
     expect(db.approvalRequest.update).toHaveBeenCalledWith({
       where: { id: requestId },
-      data: { currentStep: 3, status: 'PENDING_RELEASE' },
+      data: { currentStep: 3, status: "PENDING_RELEASE" },
     });
     expect(db.ledgerEntry.create).not.toHaveBeenCalled();
     expect(db.loanInstallment.createMany).not.toHaveBeenCalled();
   });
-  it('prevents releasing before all approvals', async () => {
+  it("prevents releasing before all approvals", async () => {
     await expect(
-      actOnRequest(actor(releaser), requestId, 'RELEASE'),
-    ).rejects.toMatchObject({ code: 'INVALID_WORKFLOW_ACTION' });
+      actOnRequest(actor(releaser), requestId, "RELEASE"),
+    ).rejects.toMatchObject({ code: "INVALID_WORKFLOW_ACTION" });
   });
-  it('posts exactly one ledger entry and six installments when the releaser acts', async () => {
+  it("posts exactly one ledger entry and six installments when the releaser acts", async () => {
     db.approvalRequest.findUniqueOrThrow.mockResolvedValue(snapshot(3));
-    await actOnRequest(actor(releaser), requestId, 'RELEASE');
+    await actOnRequest(actor(releaser), requestId, "RELEASE");
     expect(db.ledgerEntry.create).toHaveBeenCalledTimes(1);
     expect(db.loanInstallment.createMany.mock.calls[0][0].data).toHaveLength(6);
     expect(db.approvalAction.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ action: 'RELEASE', actorId: releaser }),
+        data: expect.objectContaining({ action: "RELEASE", actorId: releaser }),
       }),
     );
-    expect(mocks.queue).toHaveBeenCalledWith(tx, loan.id, 'LOAN_DISBURSED');
+    expect(mocks.queue).toHaveBeenCalledWith(tx, loan.id, "LOAN_DISBURSED");
   });
-  it('rejects insufficient cash without posting a disbursement', async () => {
+  it("rejects insufficient cash without posting a disbursement", async () => {
     db.approvalRequest.findUniqueOrThrow.mockResolvedValue(snapshot(3));
     db.ledgerEntry.groupBy.mockResolvedValue([]);
     await expect(
-      actOnRequest(actor(releaser), requestId, 'RELEASE'),
-    ).rejects.toMatchObject({ code: 'INSUFFICIENT_FAMILY_CASH' });
+      actOnRequest(actor(releaser), requestId, "RELEASE"),
+    ).rejects.toMatchObject({ code: "INSUFFICIENT_FAMILY_CASH" });
     expect(db.ledgerEntry.create).not.toHaveBeenCalled();
     expect(db.loan.update).not.toHaveBeenCalled();
   });
-  it.each(['APPROVE', 'RELEASE'] as const)(
-    'repeated %s is idempotent',
+  it.each(["APPROVE", "RELEASE"] as const)(
+    "repeated %s is idempotent",
     async (action) => {
       db.approvalAction.findFirst.mockResolvedValue({ id: uid(100) });
       await actOnRequest(
-        actor(action === 'RELEASE' ? releaser : dani),
+        actor(action === "RELEASE" ? releaser : dani),
         requestId,
         action,
       );
@@ -323,48 +328,48 @@ describe('sequential approval and disbursement', () => {
       expect(db.ledgerEntry.create).not.toHaveBeenCalled();
     },
   );
-  it('does not reveal cross-family request data', async () => {
+  it("does not reveal cross-family request data", async () => {
     db.$queryRaw.mockResolvedValue([]);
     await expect(
-      actOnRequest(actor(), requestId, 'APPROVE'),
-    ).rejects.toMatchObject({ code: 'REQUEST_NOT_FOUND' });
+      actOnRequest(actor(), requestId, "APPROVE"),
+    ).rejects.toMatchObject({ code: "REQUEST_NOT_FOUND" });
     expect(db.approvalRequest.findUniqueOrThrow).not.toHaveBeenCalled();
   });
-  it('rejects an actor whose membership is no longer active', async () => {
-    db.familyMember.findUnique.mockResolvedValue({ status: 'INACTIVE' });
+  it("rejects an actor whose membership is no longer active", async () => {
+    db.familyMember.findUnique.mockResolvedValue({ status: "INACTIVE" });
     await expect(
-      actOnRequest(actor(), requestId, 'APPROVE'),
-    ).rejects.toMatchObject({ code: 'NOT_ACTIVE_MEMBER' });
+      actOnRequest(actor(), requestId, "APPROVE"),
+    ).rejects.toMatchObject({ code: "NOT_ACTIVE_MEMBER" });
   });
-  it('detects changed loan amounts', async () => {
+  it("detects changed loan amounts", async () => {
     const data = snapshot();
     data.loan.principalAmount = new Prisma.Decimal(4000000);
     db.approvalRequest.findUniqueOrThrow.mockResolvedValue(data);
     await expect(
-      actOnRequest(actor(), requestId, 'APPROVE'),
-    ).rejects.toMatchObject({ code: 'REQUEST_DATA_CHANGED' });
+      actOnRequest(actor(), requestId, "APPROVE"),
+    ).rejects.toMatchObject({ code: "REQUEST_DATA_CHANGED" });
   });
-  it.each(['REJECT', 'RETURN'] as const)(
-    'requires notes for %s',
+  it.each(["REJECT", "RETURN"] as const)(
+    "requires notes for %s",
     async (action) => {
       await expect(
         actOnRequest(actor(), requestId, action),
-      ).rejects.toMatchObject({ code: 'NOTE_REQUIRED' });
+      ).rejects.toMatchObject({ code: "NOTE_REQUIRED" });
       expect(db.approvalAction.create).not.toHaveBeenCalled();
     },
   );
   it.each([
-    ['REJECT', 'REJECTED'],
-    ['RETURN', 'CANCELLED'],
+    ["REJECT", "REJECTED"],
+    ["RETURN", "CANCELLED"],
   ] as const)(
-    'records %s with its reason and closes the loan as %s',
+    "records %s with its reason and closes the loan as %s",
     async (action, status) => {
-      await actOnRequest(actor(), requestId, action, 'Mohon perbaiki nominal');
+      await actOnRequest(actor(), requestId, action, "Mohon perbaiki nominal");
       expect(db.loan.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             status,
-            rejectionReason: 'Mohon perbaiki nominal',
+            rejectionReason: "Mohon perbaiki nominal",
           }),
         }),
       );
@@ -372,19 +377,19 @@ describe('sequential approval and disbursement', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             action,
-            notes: 'Mohon perbaiki nominal',
+            notes: "Mohon perbaiki nominal",
           }),
         }),
       );
       expect(db.ledgerEntry.create).not.toHaveBeenCalled();
     },
   );
-  it('blocks makers approving and approvers releasing even with tampered assignments', () => {
+  it("blocks makers approving and approvers releasing even with tampered assignments", () => {
     expect(() =>
-      assertAssignedActor(makerId, makerId, makerId, 'APPROVER', []),
+      assertAssignedActor(makerId, makerId, makerId, "APPROVER", []),
     ).toThrow();
     expect(() =>
-      assertAssignedActor(dani, makerId, dani, 'RELEASER', [dani]),
+      assertAssignedActor(dani, makerId, dani, "RELEASER", [dani]),
     ).toThrow();
   });
 });

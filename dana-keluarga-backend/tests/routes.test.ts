@@ -1,253 +1,712 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Server } from 'node:http';
-import jwt from 'jsonwebtoken';
-import { Prisma } from '@prisma/client';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import type { Server } from "node:http";
+import jwt from "jsonwebtoken";
+import { Prisma } from "@prisma/client";
 const mocks = vi.hoisted(() => ({
   db: {
-    user: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn() },
-    loanInstallment: { findFirst: vi.fn(), createMany: vi.fn() }, payment: { findFirst: vi.fn() },
-    whatsAppMessage: { findMany: vi.fn(), count: vi.fn(), updateMany: vi.fn(), createMany: vi.fn() },
-    notification: { create: vi.fn(), findMany: vi.fn(), count: vi.fn(), updateMany: vi.fn() },
-    $transaction: vi.fn(), $queryRaw: vi.fn(),
-    family: { findUnique: vi.fn() }, familyMember: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
-    loan: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
+    fundRequest: {
+      aggregate: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    user: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      update: vi.fn(),
+    },
+    loanInstallment: { findFirst: vi.fn(), createMany: vi.fn() },
+    payment: { findFirst: vi.fn() },
+    emailMessage: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+      updateMany: vi.fn(),
+      createMany: vi.fn(),
+    },
+    notification: {
+      create: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
+      updateMany: vi.fn(),
+    },
+    $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
+    family: { findUnique: vi.fn() },
+    familyMember: {
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      count: vi.fn(),
+    },
+    loan: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+    },
     approvalPolicy: { findFirst: vi.fn() },
-    approvalRequest: { create: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn() },
-    approvalStep: { update: vi.fn() }, approvalAction: { findFirst: vi.fn(), create: vi.fn() }, auditLog: { create: vi.fn() },
-    ledgerEntry: { groupBy: vi.fn(), create: vi.fn() },
-  }, settle: vi.fn(),
+    approvalRequest: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      update: vi.fn(),
+    },
+    approvalStep: { update: vi.fn() },
+    approvalAction: { findFirst: vi.fn(), create: vi.fn() },
+    auditLog: { create: vi.fn() },
+    ledgerEntry: { findUnique: vi.fn(), groupBy: vi.fn(), create: vi.fn() },
+  },
+  settle: vi.fn(),
 }));
-vi.mock('../src/config/prisma', () => ({ prisma: mocks.db }));
-vi.mock('../src/modules/payments/payment.service', () => ({ settleSandboxPayment: mocks.settle }));
-import { app } from '../src/app';
-import { env } from '../src/config/env';
-const userId = '00000000-0000-4000-8000-000000000001';
-const familyId = '00000000-0000-4000-8000-000000000002';
-const installmentId = '00000000-0000-4000-8000-000000000003';
+vi.mock("../src/config/prisma", () => ({ prisma: mocks.db }));
+vi.mock("../src/modules/payments/payment.service", () => ({
+  settleSandboxPayment: mocks.settle,
+}));
+import { app } from "../src/app";
+import { env } from "../src/config/env";
+const userId = "00000000-0000-4000-8000-000000000001";
+const familyId = "00000000-0000-4000-8000-000000000002";
+const installmentId = "00000000-0000-4000-8000-000000000003";
 let server: Server;
 let base: string;
-let role = 'MEMBER';
+let role = "MEMBER";
 let memberships = true;
 let active = true;
-let systemRole = 'USER';
-const token = () => jwt.sign({ sub: userId, familyId, familyRole: 'ADMIN', systemRole: 'SUPER_ADMIN' }, env.JWT_ACCESS_SECRET, { expiresIn: '1h' });
-async function request(path: string, method = 'GET', body?: unknown, authenticated = true) {
-  return fetch(`${base}/api/v1${path}`, { method, headers: { 'Content-Type': 'application/json', ...(authenticated ? { Authorization: `Bearer ${token()}` } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+let systemRole = "USER";
+const token = () =>
+  jwt.sign(
+    { sub: userId, familyId, familyRole: "ADMIN", systemRole: "SUPER_ADMIN" },
+    env.JWT_ACCESS_SECRET,
+    { expiresIn: "1h" },
+  );
+async function request(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  authenticated = true,
+) {
+  return fetch(`${base}/api/v1${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(authenticated ? { Authorization: `Bearer ${token()}` } : {}),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
 }
 beforeAll(async () => {
   server = await new Promise<Server>((resolve, reject) => {
-    const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
-    listener.on('error', reject);
+    const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
+    listener.on("error", reject);
   });
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Test server unavailable');
+  if (!address || typeof address === "string")
+    throw new Error("Test server unavailable");
   base = `http://127.0.0.1:${address.port}`;
 });
-afterAll(async () => { if (server) await new Promise<void>((resolve) => server.close(() => resolve())); });
+afterAll(async () => {
+  if (server)
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+});
 beforeEach(() => {
-  vi.resetAllMocks(); role = 'MEMBER'; memberships = true; active = true; systemRole = 'USER';
-  env.NODE_ENV = 'test'; env.PAYMENT_PROVIDER = 'sandbox';
-  mocks.db.user.findUnique.mockImplementation(async () => ({ id: userId, isActive: active, systemRole, memberships: memberships ? [{ familyId, role }] : [] }));
-  mocks.db.$transaction.mockImplementation(async (input) => typeof input === 'function' ? input(mocks.db) : Promise.all(input));
-  mocks.db.whatsAppMessage.createMany.mockResolvedValue({ count: 1 });
+  vi.resetAllMocks();
+  role = "MEMBER";
+  memberships = true;
+  active = true;
+  systemRole = "USER";
+  mocks.db.fundRequest.aggregate.mockResolvedValue({
+    _sum: {
+      amount: new Prisma.Decimal(0),
+      withdrawalAmount: new Prisma.Decimal(0),
+    },
+  });
+  mocks.db.fundRequest.create.mockResolvedValue({ id: installmentId });
+  mocks.db.fundRequest.update.mockResolvedValue({ id: installmentId });
+  env.NODE_ENV = "test";
+  env.PAYMENT_PROVIDER = "sandbox";
+  mocks.db.user.findUnique.mockImplementation(async () => ({
+    id: userId,
+    isActive: active,
+    systemRole,
+    memberships: memberships ? [{ familyId, role }] : [],
+  }));
+  mocks.db.$transaction.mockImplementation(async (input) =>
+    typeof input === "function" ? input(mocks.db) : Promise.all(input),
+  );
+  mocks.db.emailMessage.createMany.mockResolvedValue({ count: 1 });
   mocks.db.notification.findMany.mockResolvedValue([]);
   mocks.db.notification.count.mockResolvedValue(2);
   mocks.db.notification.updateMany.mockResolvedValue({ count: 1 });
-  mocks.db.whatsAppMessage.findMany.mockResolvedValue([]); mocks.db.whatsAppMessage.count.mockResolvedValue(0);
+  mocks.db.emailMessage.findMany.mockResolvedValue([]);
+  mocks.db.emailMessage.count.mockResolvedValue(0);
 });
 
-describe('HTTP authorization and simulation boundaries', () => {
-  it('requires login to open an installment link', async () => {
-    expect((await request(`/payments/installments/${installmentId}`, 'GET', undefined, false)).status).toBe(401);
+describe("HTTP authorization and simulation boundaries", () => {
+  it("requires login to open an installment link", async () => {
+    expect(
+      (
+        await request(
+          `/payments/installments/${installmentId}`,
+          "GET",
+          undefined,
+          false,
+        )
+      ).status,
+    ).toBe(401);
     expect(mocks.db.loanInstallment.findFirst).not.toHaveBeenCalled();
   });
-  it('limits members to their own installments even with stale admin claims', async () => {
+  it("limits members to their own installments even with stale admin claims", async () => {
     mocks.db.loanInstallment.findFirst.mockResolvedValue(null);
-    expect((await request(`/payments/installments/${installmentId}`)).status).toBe(404);
-    expect(mocks.db.loanInstallment.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: installmentId, loan: { familyId, borrowerId: userId } } }));
+    expect(
+      (await request(`/payments/installments/${installmentId}`)).status,
+    ).toBe(404);
+    expect(mocks.db.loanInstallment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: installmentId, loan: { familyId, borrowerId: userId } },
+      }),
+    );
   });
-  it('limits family administrators to their family', async () => {
-    role = 'ADMIN'; mocks.db.loanInstallment.findFirst.mockResolvedValue(null);
+  it("limits family administrators to their family", async () => {
+    role = "ADMIN";
+    mocks.db.loanInstallment.findFirst.mockResolvedValue(null);
     await request(`/payments/installments/${installmentId}`);
-    expect(mocks.db.loanInstallment.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: installmentId, loan: { familyId } } }));
+    expect(mocks.db.loanInstallment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: installmentId, loan: { familyId } },
+      }),
+    );
   });
-  it('rejects inactive accounts', async () => {
+  it("rejects inactive accounts", async () => {
     active = false;
-    expect((await request('/notifications')).status).toBe(401);
+    expect((await request("/notifications")).status).toBe(401);
   });
-  it('rejects loan access after membership is removed', async () => {
+  it("rejects loan access after membership is removed", async () => {
     memberships = false;
-    expect((await request('/loans')).status).toBe(403);
+    expect((await request("/loans")).status).toBe(403);
   });
-  it('does not allow a member to simulate successful payment', async () => {
-    expect((await request(`/payments/${installmentId}/simulate-success`, 'POST')).status).toBe(403);
+  it("does not allow a member to simulate successful payment", async () => {
+    expect(
+      (await request(`/payments/${installmentId}/simulate-success`, "POST"))
+        .status,
+    ).toBe(403);
     expect(mocks.settle).not.toHaveBeenCalled();
   });
-  it('disables simulated settlements and payment creation in production', async () => {
-    role = 'ADMIN'; env.NODE_ENV = 'production';
-    expect((await request(`/payments/${installmentId}/simulate-success`, 'POST')).status).toBe(404);
-    expect((await request(`/payments/loans/${familyId}/installments/${installmentId}`, 'POST')).status).toBe(503);
+  it("disables simulated settlements and payment creation in production", async () => {
+    role = "ADMIN";
+    env.NODE_ENV = "production";
+    expect(
+      (await request(`/payments/${installmentId}/simulate-success`, "POST"))
+        .status,
+    ).toBe(404);
+    expect(
+      (
+        await request(
+          `/payments/loans/${familyId}/installments/${installmentId}`,
+          "POST",
+        )
+      ).status,
+    ).toBe(503);
     expect(mocks.settle).not.toHaveBeenCalled();
   });
-  it('does not produce fake Midtrans payments', async () => {
-    env.PAYMENT_PROVIDER = 'midtrans';
-    expect((await request(`/payments/loans/${familyId}/installments/${installmentId}`, 'POST')).status).toBe(503);
+  it("does not produce fake Midtrans payments", async () => {
+    env.PAYMENT_PROVIDER = "midtrans";
+    expect(
+      (
+        await request(
+          `/payments/loans/${familyId}/installments/${installmentId}`,
+          "POST",
+        )
+      ).status,
+    ).toBe(503);
   });
-  it('blocks the old unsigned public webhook', async () => {
-    expect((await request('/payments/webhooks/sandbox', 'POST', { externalId: 'anything', status: 'SUCCESS' }, false)).status).toBe(503);
+  it("blocks the old unsigned public webhook", async () => {
+    expect(
+      (
+        await request(
+          "/payments/webhooks/sandbox",
+          "POST",
+          { externalId: "anything", status: "SUCCESS" },
+          false,
+        )
+      ).status,
+    ).toBe(503);
     expect(mocks.settle).not.toHaveBeenCalled();
   });
-  it('scopes notification previews to the member or managing family', async () => {
-    await request('/notifications');
-    expect(mocks.db.whatsAppMessage.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { userId } }));
-    role = 'ADMIN'; await request('/notifications');
-    expect(mocks.db.whatsAppMessage.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { familyId } }));
+  it("scopes notification previews to the member or managing family", async () => {
+    await request("/notifications");
+    expect(mocks.db.emailMessage.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: { userId } }),
+    );
+    role = "ADMIN";
+    await request("/notifications");
+    expect(mocks.db.emailMessage.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: { familyId } }),
+    );
   });
-  it('updates only the current user preference and cancels queued messages on opt-out', async () => {
-    mocks.db.user.update.mockResolvedValue({ phone: '6281234567890', whatsappOptInAt: null });
-    const response = await request('/notifications/preferences', 'PATCH', { enabled: false, userId: 'other-user' });
+  it("returns only the current account email settings", async () => {
+    mocks.db.user.findUniqueOrThrow.mockResolvedValue({
+      email: "account@example.com",
+    });
+    const response = await request("/notifications/preferences");
     expect(response.status).toBe(200);
-    expect(mocks.db.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: userId }, data: { whatsappOptInAt: null } }));
-    expect(mocks.db.whatsAppMessage.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId }), data: expect.objectContaining({ status: 'CANCELLED' }) }));
+    expect(mocks.db.user.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { id: userId },
+      select: { email: true },
+    });
   });
-  it('returns expired intents as expired when opening a stale link', async () => {
-    mocks.db.loanInstallment.findFirst.mockResolvedValue({ id: installmentId, status: 'UNPAID', payments: [{ id: 'payment', status: 'PENDING', expiresAt: new Date('2000-01-01') }] });
+  it("returns expired intents as expired when opening a stale link", async () => {
+    mocks.db.loanInstallment.findFirst.mockResolvedValue({
+      id: installmentId,
+      status: "UNPAID",
+      payments: [
+        { id: "payment", status: "PENDING", expiresAt: new Date("2000-01-01") },
+      ],
+    });
     const response = await request(`/payments/installments/${installmentId}`);
-    expect((await response.json()).data.payments[0].status).toBe('EXPIRED');
+    expect((await response.json()).data.payments[0].status).toBe("EXPIRED");
   });
 });
 
-
-describe('loan journey through HTTP routes', () => {
-  const loanId = '00000000-0000-4000-8000-000000000004';
-  const fixture = { id: loanId, familyId, borrowerId: userId, principalAmount: new Prisma.Decimal(3000000), tenorMonths: 6, purpose: 'Renovasi rumah', borrower: { id: userId, name: 'Rani', phone: '6281234567890' }, family: { name: 'Keluarga A' }, installments: [{ id: installmentId, principalAmount: new Prisma.Decimal(500000), dueDate: new Date('2026-10-12T09:00:00+07:00') }] };
+describe("loan journey through HTTP routes", () => {
+  const loanId = "00000000-0000-4000-8000-000000000004";
+  const fixture = {
+    id: loanId,
+    familyId,
+    borrowerId: userId,
+    principalAmount: new Prisma.Decimal(3000000),
+    tenorMonths: 6,
+    purpose: "Renovasi rumah",
+    borrower: { id: userId, name: "Rani", phone: "6281234567890" },
+    family: { name: "Keluarga A" },
+    installments: [
+      {
+        id: installmentId,
+        principalAmount: new Prisma.Decimal(500000),
+        dueDate: new Date("2026-10-12T09:00:00+07:00"),
+      },
+    ],
+  };
   beforeEach(() => {
     mocks.db.$queryRaw.mockResolvedValue([{ id: loanId }]);
-    mocks.db.approvalPolicy.findFirst.mockResolvedValue({ id: 'policy', assignments: [
-      { userId, permission: 'MAKER', sequence: 1 },
-      { userId: 'approver', permission: 'APPROVER', sequence: 1 },
-      { userId: 'releaser', permission: 'RELEASER', sequence: 2 },
-    ] });
-    mocks.db.approvalRequest.create.mockResolvedValue({ id: 'request' });
+    mocks.db.approvalPolicy.findFirst.mockResolvedValue({
+      id: "policy",
+      assignments: [
+        { userId, permission: "MAKER", sequence: 1 },
+        { userId: "approver", permission: "APPROVER", sequence: 1 },
+        { userId: "releaser", permission: "RELEASER", sequence: 2 },
+      ],
+    });
+    mocks.db.approvalRequest.create.mockResolvedValue({ id: "request" });
     mocks.db.familyMember.count.mockResolvedValue(2);
     mocks.db.family.findUnique.mockResolvedValue({ id: familyId });
+    mocks.db.familyMember.findUnique.mockResolvedValue({
+      status: "ACTIVE",
+      user: { isActive: true },
+    });
     mocks.db.familyMember.findFirst.mockResolvedValue({ id: userId, userId });
     mocks.db.familyMember.findMany.mockResolvedValue([]);
     mocks.db.loan.findUniqueOrThrow.mockResolvedValue(fixture);
-    mocks.db.loan.create.mockResolvedValue({ ...fixture, status: 'PENDING' });
+    mocks.db.loan.create.mockResolvedValue({ ...fixture, status: "PENDING" });
     mocks.db.loan.update.mockResolvedValue(fixture);
     mocks.db.loan.updateMany.mockResolvedValue({ count: 1 });
-    mocks.db.ledgerEntry.groupBy.mockResolvedValue([{ direction: 'IN', _sum: { amount: new Prisma.Decimal(5000000) } }]);
+    mocks.db.ledgerEntry.groupBy.mockResolvedValue([
+      { direction: "IN", _sum: { amount: new Prisma.Decimal(5000000) } },
+    ]);
   });
-  it('creates an application and its outbox in one transaction without requesting password fields', async () => {
+  it("creates an application and its outbox in one transaction without requesting password fields", async () => {
     mocks.db.loan.findFirst.mockResolvedValue(null);
-    const response = await request('/loans', 'POST', { amount: 3000000, tenorMonths: 6, purpose: 'Renovasi rumah' });
+    const response = await request("/loans", "POST", {
+      idempotencyKey: installmentId,
+      amount: 3000000,
+      tenorMonths: 6,
+      purpose: "Renovasi rumah",
+    });
     expect(response.status).toBe(201);
     expect(mocks.db.$transaction).toHaveBeenCalledTimes(1);
-    expect(mocks.db.loan.create).toHaveBeenCalledWith(expect.objectContaining({ include: { borrower: { select: { id: true, name: true, phone: true } } } }));
-    expect(mocks.db.whatsAppMessage.createMany).toHaveBeenCalled();
+    expect(mocks.db.loan.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          borrowerId: userId,
+          principalAmount: "3000000",
+        }),
+      }),
+    );
+    expect(mocks.db.emailMessage.createMany).toHaveBeenCalled();
     expect(mocks.db.approvalRequest.create).toHaveBeenCalled();
-    expect(mocks.db.notification.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: 'approver' }) }));
+    expect(mocks.db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: "approver" }),
+      }),
+    );
   });
-  it('rejects a second application after acquiring the member lock', async () => {
+  it("rejects a second application after acquiring the member lock", async () => {
     mocks.db.loan.findFirst.mockResolvedValue({ id: loanId });
-    const response = await request('/loans', 'POST', { amount: 3000000, tenorMonths: 6, purpose: 'Renovasi rumah' });
+    const response = await request("/loans", "POST", {
+      idempotencyKey: installmentId,
+      amount: 3000000,
+      tenorMonths: 6,
+      purpose: "Renovasi rumah",
+    });
     expect(response.status).toBe(409);
     expect(mocks.db.$queryRaw).toHaveBeenCalled();
     expect(mocks.db.loan.create).not.toHaveBeenCalled();
   });
-  it('requires a configured hierarchy for new applications', async () => {
+  it("requires a configured hierarchy for new applications", async () => {
     mocks.db.loan.findFirst.mockResolvedValue(null);
     mocks.db.approvalPolicy.findFirst.mockResolvedValue(null);
-    const response = await request('/loans', 'POST', { amount: 3000000, tenorMonths: 6, purpose: 'Renovasi rumah' });
+    const response = await request("/loans", "POST", {
+      idempotencyKey: installmentId,
+      amount: 3000000,
+      tenorMonths: 6,
+      purpose: "Renovasi rumah",
+    });
     expect(response.status).toBe(409);
-    expect((await response.json()).error.code).toBe('WORKFLOW_NOT_CONFIGURED');
+    expect((await response.json()).error.code).toBe("WORKFLOW_NOT_CONFIGURED");
   });
-  it('prevents old URLs from bypassing missing historical workflows', async () => {
-    role = 'ADMIN'; mocks.db.loan.findFirst.mockResolvedValue({ ...fixture, status: 'APPROVED' });
-    for (const action of ['approve', 'reject', 'disburse']) {
-      const response = await request(`/loans/${loanId}/${action}`, 'POST', { reason: 'Tidak memenuhi syarat' });
+  it("prevents old URLs from bypassing missing historical workflows", async () => {
+    role = "ADMIN";
+    mocks.db.loan.findFirst.mockResolvedValue({
+      ...fixture,
+      status: "APPROVED",
+    });
+    for (const action of ["approve", "reject", "disburse"]) {
+      const response = await request(`/loans/${loanId}/${action}`, "POST", {
+        reason: "Tidak memenuhi syarat",
+      });
       expect(response.status).toBe(409);
-      expect((await response.json()).error.code).toBe('LEGACY_WORKFLOW_REQUIRED');
+      expect((await response.json()).error.code).toBe(
+        "LEGACY_WORKFLOW_REQUIRED",
+      );
     }
     expect(mocks.db.ledgerEntry.create).not.toHaveBeenCalled();
   });
-  it('blocks Super Admin financial operations even with family ADMIN membership', async () => {
-    role = 'ADMIN'; systemRole = 'SUPER_ADMIN';
-    for (const path of ['/loans', `/loans/${loanId}/approve`, `/payments/${installmentId}/simulate-success`, '/ledger']) {
-      expect((await request(path, 'POST', { amount: 3000000, tenorMonths: 6, purpose: 'Renovasi rumah' })).status).toBe(403);
+  it("blocks Super Admin financial operations even with family ADMIN membership", async () => {
+    role = "ADMIN";
+    systemRole = "SUPER_ADMIN";
+    for (const path of [
+      "/loans",
+      `/loans/${loanId}/approve`,
+      `/payments/${installmentId}/simulate-success`,
+      "/ledger",
+    ]) {
+      expect(
+        (
+          await request(path, "POST", {
+            idempotencyKey: installmentId,
+            amount: 3000000,
+            tenorMonths: 6,
+            purpose: "Renovasi rumah",
+          })
+        ).status,
+      ).toBe(403);
     }
     expect(mocks.db.ledgerEntry.create).not.toHaveBeenCalled();
     expect(mocks.settle).not.toHaveBeenCalled();
   });
-  it('rejects hierarchy writes by ordinary members and malformed configuration', async () => {
-    const input = { expectedVersion: 0, makerIds: [userId], approverIds: [installmentId], releaserId: loanId, reason: 'Penetapan awal' };
-    mocks.db.familyMember.findUnique.mockResolvedValue({ status: 'ACTIVE', role: 'MEMBER' });
-    expect((await request(`/approval-policies/families/${familyId}`, 'PUT', input)).status).toBe(403);
-    expect((await request(`/approval-policies/families/${familyId}`, 'PUT', { ...input, approverIds: [] })).status).toBe(400);
+  it("rejects hierarchy writes by ordinary members and malformed configuration", async () => {
+    const input = {
+      expectedVersion: 0,
+      makerIds: [userId],
+      approverIds: [installmentId],
+      releaserId: loanId,
+      reason: "Penetapan awal",
+    };
+    mocks.db.familyMember.findUnique.mockResolvedValue({
+      status: "ACTIVE",
+      role: "MEMBER",
+    });
+    expect(
+      (await request(`/approval-policies/families/${familyId}`, "PUT", input))
+        .status,
+    ).toBe(403);
+    expect(
+      (
+        await request(`/approval-policies/families/${familyId}`, "PUT", {
+          ...input,
+          approverIds: [],
+        })
+      ).status,
+    ).toBe(400);
   });
-
 });
 
-
-describe('personal notification inbox API', () => {
-  it('limits inbox and unread count to the current account, including admins', async () => {
-    role = 'ADMIN';
-    const response = await request('/notifications/inbox?unread=true&page=2');
+describe("personal notification inbox API", () => {
+  it("limits inbox and unread count to the current account, including admins", async () => {
+    role = "ADMIN";
+    const response = await request("/notifications/inbox?unread=true&page=2");
     expect(response.status).toBe(200);
-    expect(mocks.db.notification.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId, isRead: false }, skip: 20, take: 20 }));
+    expect(mocks.db.notification.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId, isRead: false },
+        skip: 20,
+        take: 20,
+      }),
+    );
     expect((await response.json()).data.unreadCount).toBe(2);
-    await request('/notifications/inbox/unread-count');
-    expect(mocks.db.notification.count).toHaveBeenLastCalledWith({ where: { userId, isRead: false } });
+    await request("/notifications/inbox/unread-count");
+    expect(mocks.db.notification.count).toHaveBeenLastCalledWith({
+      where: { userId, isRead: false },
+    });
   });
-  it('marks only the current account notifications as read', async () => {
-    expect((await request('/notifications/inbox/read-all', 'PATCH')).status).toBe(200);
-    expect(mocks.db.notification.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { userId, isRead: false }, data: expect.objectContaining({ isRead: true }) }));
-    expect((await request(`/notifications/inbox/${installmentId}/read`, 'PATCH')).status).toBe(200);
-    expect(mocks.db.notification.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { id: installmentId, userId } }));
+  it("marks only the current account notifications as read", async () => {
+    expect(
+      (await request("/notifications/inbox/read-all", "PATCH")).status,
+    ).toBe(200);
+    expect(mocks.db.notification.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { userId, isRead: false },
+        data: expect.objectContaining({ isRead: true }),
+      }),
+    );
+    expect(
+      (await request(`/notifications/inbox/${installmentId}/read`, "PATCH"))
+        .status,
+    ).toBe(200);
+    expect(mocks.db.notification.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: { id: installmentId, userId } }),
+    );
   });
-  it('does not permit marking another account notification as read', async () => {
+  it("does not permit marking another account notification as read", async () => {
     mocks.db.notification.updateMany.mockResolvedValue({ count: 0 });
-    expect((await request(`/notifications/inbox/${installmentId}/read`, 'PATCH')).status).toBe(404);
+    expect(
+      (await request(`/notifications/inbox/${installmentId}/read`, "PATCH"))
+        .status,
+    ).toBe(404);
   });
-  it('rejects malformed filters and notification IDs', async () => {
-    expect((await request('/notifications/inbox?page=-1')).status).toBe(400);
-    expect((await request('/notifications/inbox?unread=maybe')).status).toBe(400);
-    expect((await request('/notifications/inbox/not-an-id/read', 'PATCH')).status).toBe(400);
+  it("rejects malformed filters and notification IDs", async () => {
+    expect((await request("/notifications/inbox?page=-1")).status).toBe(400);
+    expect((await request("/notifications/inbox?unread=maybe")).status).toBe(
+      400,
+    );
+    expect(
+      (await request("/notifications/inbox/not-an-id/read", "PATCH")).status,
+    ).toBe(400);
     expect(mocks.db.notification.updateMany).not.toHaveBeenCalled();
   });
 });
 
-
-describe('explicit active-family context', () => {
-  it('issues a token only for an active membership and keeps its role', async () => {
-    mocks.db.user.findUnique.mockResolvedValue({ id: userId, name: 'Anggota', isActive: true, systemRole: 'USER', memberships: [{ familyId, role: 'MEMBER', family: { name: 'Keluarga A' } }] });
-    const response = await request('/auth/active-family', 'POST', { familyId });
+describe("explicit active-family context", () => {
+  it("issues a token only for an active membership and keeps its role", async () => {
+    mocks.db.user.findUnique.mockResolvedValue({
+      id: userId,
+      name: "Anggota",
+      isActive: true,
+      systemRole: "USER",
+      memberships: [
+        { familyId, role: "MEMBER", family: { name: "Keluarga A" } },
+      ],
+    });
+    const response = await request("/auth/active-family", "POST", { familyId });
     expect(response.status).toBe(200);
     const payload = await response.json();
-    expect(jwt.verify(payload.data.accessToken, env.JWT_ACCESS_SECRET)).toMatchObject({ familyId, familyRole: 'MEMBER', systemRole: 'USER' });
-    expect(payload.data.user.families).toEqual([{ id: familyId, role: 'MEMBER', name: 'Keluarga A' }]);
+    expect(
+      jwt.verify(payload.data.accessToken, env.JWT_ACCESS_SECRET),
+    ).toMatchObject({ familyId, familyRole: "MEMBER", systemRole: "USER" });
+    expect(payload.data.user.families).toEqual([
+      { id: familyId, role: "MEMBER", name: "Keluarga A" },
+    ]);
   });
-  it('rejects a switch to another family without active membership', async () => {
-    mocks.db.user.findUnique.mockResolvedValue({ id: userId, name: 'Anggota', isActive: true, systemRole: 'USER', memberships: [{ familyId, role: 'MEMBER', family: { name: 'Keluarga A' } }] });
-    expect((await request('/auth/active-family', 'POST', { familyId: installmentId })).status).toBe(403);
+  it("rejects a switch to another family without active membership", async () => {
+    mocks.db.user.findUnique.mockResolvedValue({
+      id: userId,
+      name: "Anggota",
+      isActive: true,
+      systemRole: "USER",
+      memberships: [
+        { familyId, role: "MEMBER", family: { name: "Keluarga A" } },
+      ],
+    });
+    expect(
+      (
+        await request("/auth/active-family", "POST", {
+          familyId: installmentId,
+        })
+      ).status,
+    ).toBe(403);
   });
 });
 
-
-describe('loan submission permission lookup', () => {
-  it('requires a configured maker assignment without a decision-role conflict', async () => {
+describe("loan submission permission lookup", () => {
+  it("requires a configured maker assignment without a decision-role conflict", async () => {
     for (const [policy, configured, canCreateLoan] of [
       [null, false, false],
-      [{ assignments: [{ permission: 'MAKER' }] }, true, true],
-      [{ assignments: [{ permission: 'MAKER' }, { permission: 'APPROVER' }] }, true, false],
+      [{ assignments: [{ permission: "MAKER" }] }, true, true],
+      [
+        { assignments: [{ permission: "MAKER" }, { permission: "APPROVER" }] },
+        true,
+        false,
+      ],
       [{ assignments: [] }, true, false],
     ] as const) {
       mocks.db.approvalPolicy.findFirst.mockResolvedValue(policy);
-      const response = await request('/approvals/permissions');
+      const response = await request("/approvals/permissions");
       expect(response.status).toBe(200);
-      expect((await response.json()).data).toEqual({ configured, canCreateLoan });
-      expect(mocks.db.approvalPolicy.findFirst).toHaveBeenLastCalledWith(expect.objectContaining({ where: { familyId, transactionType: 'LOAN', active: true } }));
+      expect((await response.json()).data).toEqual({
+        configured,
+        canCreateLoan,
+      });
+      expect(mocks.db.approvalPolicy.findFirst).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: { familyId, transactionType: "LOAN", active: true },
+        }),
+      );
     }
+  });
+});
+
+describe("registration and financial validation through HTTP", () => {
+  it("requires administrator access before attempting to create accounts", async () => {
+    expect((await request("/management/members", "POST", {})).status).toBe(403);
+    expect(
+      (await request("/management/registrations", "POST", {})).status,
+    ).toBe(403);
+  });
+  it("returns localized validation details for missing registration fields", async () => {
+    role = "ADMIN";
+    const response = await request("/management/members", "POST", {
+      name: "Rani",
+      phone: "081234567890",
+      password: "password123",
+      confirmPassword: "different",
+    });
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      success: false,
+      error: { code: "INVALID_INPUT" },
+    });
+    expect(payload.error.message).not.toMatch(/Invalid|undefined|expected/);
+    expect(payload.error.fields).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "email" })]),
+    );
+  });
+  it("rejects zero, negative, fractional and unsafe cash amounts", async () => {
+    role = "ADMIN";
+    for (const amount of [0, -100, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(
+        (
+          await request("/ledger", "POST", {
+            idempotencyKey: installmentId,
+            direction: "IN",
+            amount,
+            description: "Setoran keluarga",
+          })
+        ).status,
+      ).toBe(400);
+    }
+    expect(mocks.db.ledgerEntry.create).not.toHaveBeenCalled();
+  });
+  it("rejects expenses greater than the locked family cash balance", async () => {
+    role = "ADMIN";
+    mocks.db.ledgerEntry.groupBy.mockResolvedValue([]);
+    const response = await request("/ledger", "POST", {
+      idempotencyKey: installmentId,
+      direction: "OUT",
+      amount: 1000,
+      description: "Pengeluaran keluarga",
+    });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("INSUFFICIENT_FAMILY_CASH");
+    expect(mocks.db.ledgerEntry.create).not.toHaveBeenCalled();
+  });
+  it("returns a consistent JSON envelope for unknown endpoints", async () => {
+    const response = await request("/missing-endpoint");
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: { code: "NOT_FOUND" },
+    });
+  });
+});
+
+describe("login failure distinctions", () => {
+  it("identifies an email that has not been registered", async () => {
+    mocks.db.user.findFirst.mockResolvedValue(null);
+    const response = await request(
+      "/auth/login",
+      "POST",
+      { email: "missing@example.com", password: "wrong-password" },
+      false,
+    );
+    expect(response.status).toBe(401);
+    expect((await response.json()).error.code).toBe(
+      "AUTH_EMAIL_NOT_REGISTERED",
+    );
+  });
+  it("identifies an incorrect password for a registered account", async () => {
+    const argon2 = await import("argon2");
+    mocks.db.user.findFirst.mockResolvedValue({
+      isActive: true,
+      passwordHash: await argon2.hash("test-correct-password"),
+    });
+    const response = await request(
+      "/auth/login",
+      "POST",
+      { email: "registered@example.com", password: "wrong-password" },
+      false,
+    );
+    expect(response.status).toBe(401);
+    expect((await response.json()).error.code).toBe("AUTH_PASSWORD_INCORRECT");
+  });
+  it("does not describe an inactive account as unregistered", async () => {
+    mocks.db.user.findFirst.mockResolvedValue({ isActive: false });
+    const response = await request(
+      "/auth/login",
+      "POST",
+      { email: "inactive@example.com", password: "wrong-password" },
+      false,
+    );
+    expect(response.status).toBe(401);
+    expect((await response.json()).error.code).toBe("AUTH_ACCOUNT_INACTIVE");
+  });
+});
+
+describe("member family filters", () => {
+  it("allows Super Admin to list members across all families", async () => {
+    systemRole = "SUPER_ADMIN";
+    mocks.db.familyMember.findMany.mockResolvedValue([]);
+    expect((await request("/management/members")).status).toBe(200);
+    expect(mocks.db.familyMember.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {},
+        select: expect.objectContaining({ family: expect.anything() }),
+      }),
+    );
+  });
+  it("filters a selected family for Super Admin", async () => {
+    systemRole = "SUPER_ADMIN";
+    mocks.db.familyMember.findMany.mockResolvedValue([]);
+    expect(
+      (await request(`/management/members?familyId=${familyId}`)).status,
+    ).toBe(200);
+    expect(mocks.db.familyMember.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { familyId } }),
+    );
+  });
+  it("does not let ordinary members override their family scope", async () => {
+    mocks.db.familyMember.findMany.mockResolvedValue([]);
+    expect(
+      (await request(`/management/members?familyId=${installmentId}`)).status,
+    ).toBe(200);
+    expect(mocks.db.familyMember.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { familyId } }),
+    );
+  });
+  it("rejects malformed family filters for Super Admin", async () => {
+    systemRole = "SUPER_ADMIN";
+    expect((await request("/management/members?familyId=invalid")).status).toBe(
+      400,
+    );
+    expect(mocks.db.familyMember.findMany).not.toHaveBeenCalled();
   });
 });

@@ -1,9 +1,9 @@
-import crypto from 'node:crypto';
-import argon2 from 'argon2';
-import jwt from 'jsonwebtoken';
-import { prisma } from '../../config/prisma';
-import { FamilyRole, SystemRole } from '@prisma/client';
-import { env } from '../../config/env';
+import crypto from "node:crypto";
+import argon2 from "argon2";
+import jwt from "jsonwebtoken";
+import { prisma } from "../../config/prisma";
+import { FamilyRole, SystemRole } from "@prisma/client";
+import { env } from "../../config/env";
 
 export type SessionUser = {
   id: string;
@@ -26,11 +26,13 @@ export async function createSession(
   const accessToken = jwt.sign(
     { sub: userId, familyId, familyRole, systemRole },
     env.JWT_ACCESS_SECRET,
-    { expiresIn: '15m' },
+    { expiresIn: "15m" },
   );
-  const refreshToken = crypto.randomBytes(48).toString('hex');
+  const sessionId = crypto.randomUUID();
+  const refreshToken = `${sessionId}.${crypto.randomBytes(48).toString("hex")}`;
   await prisma.refreshToken.create({
     data: {
+      id: sessionId,
       userId,
       tokenHash: await argon2.hash(refreshToken),
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
@@ -47,8 +49,8 @@ export async function getSessionUser(
     where: { id: userId },
     include: {
       memberships: {
-        where: { status: 'ACTIVE' },
-        orderBy: { joinedAt: 'asc' },
+        where: { status: "ACTIVE" },
+        orderBy: { joinedAt: "asc" },
         include: { family: { select: { name: true } } },
       },
     },
@@ -74,40 +76,51 @@ export async function getSessionUser(
   };
 }
 
-export async function rotateRefreshToken(token: string) {
+async function matchingRefreshSession(token: string) {
+  const sessionId = token.split(".")[0];
+  const modern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      sessionId,
+    );
+  // Existing opaque tokens remain valid until expiry; new tokens use indexed lookup.
   const sessions = await prisma.refreshToken.findMany({
-    where: { revokedAt: null, expiresAt: { gt: new Date() } },
+    where: {
+      ...(modern ? { id: sessionId } : {}),
+      revokedAt: null,
+      expiresAt: { gt: new Date() },
+    },
   });
-  for (const session of sessions) {
-    if (await argon2.verify(session.tokenHash, token)) {
-      const user = await getSessionUser(session.userId);
-      if (!user) return null;
-      await prisma.refreshToken.update({
-        where: { id: session.id },
-        data: { revokedAt: new Date() },
-      });
-      return {
-        user,
-        tokens: await createSession(
-          user.id,
-          user.familyId,
-          user.familyRole,
-          user.systemRole,
-        ),
-      };
-    }
-  }
+  for (const session of sessions)
+    if (await argon2.verify(session.tokenHash, token)) return session;
   return null;
 }
 
-export async function revokeRefreshToken(token: string) {
-  const sessions = await prisma.refreshToken.findMany({
-    where: { revokedAt: null },
+export async function rotateRefreshToken(token: string, familyId?: string) {
+  const session = await matchingRefreshSession(token);
+  if (!session) return null;
+  const user = await getSessionUser(session.userId, familyId);
+  if (!user) return null;
+  const claimed = await prisma.refreshToken.updateMany({
+    where: { id: session.id, revokedAt: null },
+    data: { revokedAt: new Date() },
   });
-  for (const session of sessions)
-    if (await argon2.verify(session.tokenHash, token))
-      await prisma.refreshToken.update({
-        where: { id: session.id },
-        data: { revokedAt: new Date() },
-      });
+  if (!claimed.count) return null;
+  return {
+    user,
+    tokens: await createSession(
+      user.id,
+      user.familyId,
+      user.familyRole,
+      user.systemRole,
+    ),
+  };
+}
+
+export async function revokeRefreshToken(token: string) {
+  const session = await matchingRefreshSession(token);
+  if (session)
+    await prisma.refreshToken.updateMany({
+      where: { id: session.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
 }

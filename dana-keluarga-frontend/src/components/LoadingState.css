@@ -1,0 +1,16 @@
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 96px;
+  padding: 24px 16px;
+  color: #6b626e;
+  font-size: 14px;
+  font-weight: 400;
+  text-align: center;
+}
+.loading-state > svg {
+  flex-shrink: 0;
+  color: #cb644d;
+}

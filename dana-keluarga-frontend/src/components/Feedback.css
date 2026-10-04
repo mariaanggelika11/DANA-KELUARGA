@@ -15,9 +15,9 @@
 .feedback-close { display: grid; place-items: center; flex-shrink: 0; padding: 6px; margin: -4px; border-radius: 5px; color: inherit; }
 .feedback-close:hover { background: #0000000a; }
 .feedback-floating { position: fixed; right: 24px; top: 18px; z-index: 40; width: min(430px, calc(100vw - 32px)); margin: 0; box-shadow: 0 12px 35px #28262b20; animation: feedback-in .18s ease-out; }
-.password-control { position: relative; flex: 1; min-width: 0; }
+.password-control { position: relative; display: grid; flex: 1; min-width: 0; margin-top: 7px; }
 .password-control input { padding-right: 48px !important; }
-.password-toggle { position: absolute; right: 3px; top: 7px; bottom: 0; width: 42px; min-height: 40px; display: grid; place-items: center; border-radius: 5px; color: #625b64; }
+.password-toggle { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; min-height: 0; padding: 0; margin: 0; display: grid; place-items: center; border-radius: 5px; color: #625b64; }
 .password-toggle:hover { background: #f4f0ea; color: #28262b; }
 .login-card .password-control input { font-size: 16px; }
 .login-card label { font-size: 13px; color: #514a52; }
@@ -30,8 +30,8 @@
 .validation-summary li + li { margin-top: 5px; }
 .validation-summary button { padding: 0; text-align: left; text-decoration: underline; text-underline-offset: 3px; color: inherit; }
 input[aria-invalid="true"], textarea[aria-invalid="true"], select[aria-invalid="true"], input:user-invalid, textarea:user-invalid, select:user-invalid { border-color: var(--feedback-error) !important; background-color: #fffafa; }
-.currency-input:has(input[aria-invalid="true"]), .currency-input:has(input:user-invalid) { border-color: var(--feedback-error) !important; box-shadow: 0 0 0 2px #9c282815; }
-input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid #3276b4; outline-offset: 3px; }
+.currency-input:has(input[aria-invalid="true"]), .currency-input:has(input:user-invalid) { border-color: var(--feedback-error) !important; box-shadow: none; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 1px solid #3276b4; outline-offset: 1px; }
 input[aria-invalid="true"]:focus-visible, textarea[aria-invalid="true"]:focus-visible { outline-color: var(--feedback-error); }
 button:disabled { cursor: not-allowed; opacity: .6; }
 button, input, textarea, select { -webkit-tap-highlight-color: transparent; }

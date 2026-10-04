@@ -78,7 +78,7 @@ URL approve/reject/disburse pinjaman versi lama tetap mengarah ke engine yang sa
 
 ## Notifikasi dan batas integrasi
 
-Tugas per tahap menggunakan notifikasi di aplikasi. Event pinjaman untuk peminjam tetap menggunakan outbox WhatsApp yang sudah ada: pengajuan diterima, approval terakhir, ditolak, dan dicairkan. Pemberitahuan pengajuan tidak lagi dikirim massal ke semua admin/bendahara; tugas diarahkan ke approver yang tepat. WhatsApp tetap **simulasi**, bukan pengiriman nyata. Email SMTP/outbox belum diimplementasikan pada tahap ini.
+Tugas per tahap dan event pinjaman menggunakan notifikasi di aplikasi serta outbox email. Tugas dikirim kepada approver yang sedang bertugas. Pengiriman email nyata memerlukan konfigurasi SMTP.
 
 ## Verifikasi
 
@@ -89,3 +89,7 @@ Tugas per tahap menggunakan notifikasi di aplikasi. Event pinjaman untuk peminja
 - UI Chrome dengan API fixture: menu Super Admin, konfigurasi Dani/Danang, urutan body simpan, riwayat versi, desktop dan ponsel 390 px, tanpa horizontal overflow atau error JavaScript.
 
 - Pemeriksaan browser tambahan: deep link detail request, tindakan Dani memindahkan tahap ke Danang, tombol aksi Dani hilang setelah berhasil, dan inbox tetap muat pada layar 390 px.
+
+## Kas Keluarga
+
+Pengajuan baru memisahkan kontribusi sendiri dan pinjaman. Aturan cadangan, pencairan, email, serta status migration dijelaskan dalam [FAMILY_CASH.md](./FAMILY_CASH.md).

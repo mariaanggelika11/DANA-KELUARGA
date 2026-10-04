@@ -27,6 +27,7 @@ enum LedgerDirection {
 enum LedgerType {
   INITIAL_BALANCE
   CONTRIBUTION
+  WITHDRAWAL
   OTHER_INCOME
   EXPENSE
   LOAN_DISBURSEMENT
@@ -83,16 +84,17 @@ model User {
   avatarUrl String?
   isActive Boolean @default(true)
   lastLoginAt DateTime?
-  whatsappOptInAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   memberships FamilyMember[]
   loans Loan[] @relation("BorrowerLoans")
   approvedLoans Loan[] @relation("ApprovedLoans")
   rejectedLoans Loan[] @relation("RejectedLoans")
+  contributionEntries LedgerEntry[] @relation("ContributionOwner")
+  fundRequests FundRequest[]
+  emailMessages EmailMessage[]
   ledgerEntries LedgerEntry[]
   notifications Notification[]
-  whatsappMessages WhatsAppMessage[]
   auditLogs AuditLog[]
   refreshTokens RefreshToken[]
   createdApprovalPolicies ApprovalPolicy[] @relation("PolicyCreator")
@@ -113,11 +115,12 @@ model Family {
   updatedAt DateTime @updatedAt
   memberships FamilyMember[]
   loans Loan[]
+  fundRequests FundRequest[]
+  emailMessages EmailMessage[]
   ledgerEntries LedgerEntry[]
   goals FundGoal[]
   payments Payment[]
   notifications Notification[]
-  whatsappMessages WhatsAppMessage[]
   auditLogs AuditLog[]
   approvalPolicies ApprovalPolicy[]
   approvalRequests ApprovalRequest[]
@@ -144,6 +147,11 @@ model LedgerEntry {
   direction LedgerDirection
   amount Decimal @db.Decimal(18, 2)
   description String
+  ownerUserId String? @db.Uuid
+  owner User? @relation("ContributionOwner", fields: [ownerUserId], references: [id])
+  balanceBefore Decimal? @db.Decimal(18, 2)
+  balanceAfter Decimal? @db.Decimal(18, 2)
+  idempotencyKey String?
   referenceType String?
   referenceId String?
   createdById String @db.Uuid
@@ -151,6 +159,8 @@ model LedgerEntry {
   createdAt DateTime @default(now())
   family Family @relation(fields: [familyId], references: [id])
   createdBy User @relation(fields: [createdById], references: [id])
+  @@unique([familyId, createdById, idempotencyKey])
+  @@index([familyId, ownerUserId, type])
   @@index([familyId, occurredAt])
 }
 
@@ -176,6 +186,7 @@ model Loan {
   borrower User @relation("BorrowerLoans", fields: [borrowerId], references: [id])
   approvedBy User? @relation("ApprovedLoans", fields: [approvedById], references: [id])
   rejectedBy User? @relation("RejectedLoans", fields: [rejectedById], references: [id])
+  fundRequest FundRequest?
   installments LoanInstallment[]
   payments Payment[]
   approvalRequestId String? @unique @db.Uuid
@@ -283,39 +294,6 @@ model RefreshToken {
   createdAt DateTime @default(now())
   user User @relation(fields: [userId], references: [id])
   @@index([userId, revokedAt])
-}
-
-// Durable outbox: written in the same transaction as each business event.
-// Simulation is deliberately distinct from real delivery.
-enum WhatsAppMessageStatus {
-  QUEUED
-  PROCESSING
-  SIMULATED
-  FAILED
-  CANCELLED
-}
-
-model WhatsAppMessage {
-  id String @id @default(uuid()) @db.Uuid
-  eventKey String @unique
-  userId String @db.Uuid
-  familyId String @db.Uuid
-  kind String
-  body String
-  installmentId String? @db.Uuid
-  status WhatsAppMessageStatus @default(QUEUED)
-  attempts Int @default(0)
-  nextAttemptAt DateTime @default(now())
-  lockedAt DateTime?
-  completedAt DateTime?
-  lastError String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user User @relation(fields: [userId], references: [id])
-  family Family @relation(fields: [familyId], references: [id])
-  @@index([status, nextAttemptAt])
-  @@index([familyId, createdAt])
-  @@index([installmentId, kind, status])
 }
 
 enum WorkflowPermission {
@@ -435,6 +413,8 @@ model ApprovalAction {
   step      Int
   actorId   String             @db.Uuid
   action    ApprovalActionType
+  beforeStatus ApprovalRequestStatus?
+  afterStatus ApprovalRequestStatus?
   notes     String?
   actedAt   DateTime           @default(now())
   request   ApprovalRequest    @relation(fields: [requestId], references: [id])
@@ -442,4 +422,53 @@ model ApprovalAction {
 
   @@unique([requestId, step, action])
   @@index([actorId, actedAt])
+}
+
+// Pending requests reserve liquidity and the member contribution until final release.
+model FundRequest {
+  id String @id @default(uuid()) @db.Uuid
+  familyId String @db.Uuid
+  userId String @db.Uuid
+  idempotencyKey String
+  amount Decimal @db.Decimal(18, 2)
+  withdrawalAmount Decimal @db.Decimal(18, 2)
+  loanAmount Decimal @db.Decimal(18, 2)
+  purpose String
+  tenorMonths Int
+  status LoanStatus @default(PENDING)
+  loanId String? @unique @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  family Family @relation(fields: [familyId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  loan Loan? @relation(fields: [loanId], references: [id])
+  @@unique([familyId, userId, idempotencyKey])
+  @@index([familyId, status])
+}
+
+enum EmailStatus {
+  QUEUED
+  PROCESSING
+  SENT
+  SIMULATED
+  FAILED
+  CANCELLED
+}
+model EmailMessage {
+  id String @id @default(uuid()) @db.Uuid
+  eventKey String @unique
+  userId String @db.Uuid
+  familyId String @db.Uuid
+  subject String
+  body String
+  status EmailStatus @default(QUEUED)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  lockedAt DateTime?
+  completedAt DateTime?
+  lastError String?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id])
+  family Family @relation(fields: [familyId], references: [id])
+  @@index([status, nextAttemptAt])
 }

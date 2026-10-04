@@ -1,0 +1,167 @@
+.searchable-select {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.searchable-select > label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: #514954;
+}
+.ss-required {
+  color: #bb513b;
+}
+.ss-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 4px 0 12px;
+  border: 1px solid #e4ddd7;
+  border-radius: 12px;
+  background: #fff;
+  color: #948795;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.ss-control:hover {
+  border-color: #cabbb1;
+}
+.ss-control:focus-within,
+.ss-control.is-open {
+  border-color: #df907a;
+  box-shadow: 0 0 0 1px #edbba626;
+}
+.searchable-select .ss-control input {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  height: 46px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  color: #403943;
+  font: inherit;
+  font-size: 14px;
+  text-overflow: ellipsis;
+}
+.searchable-select .ss-control input:focus {
+  outline: none;
+  box-shadow: none;
+}
+.ss-control input::placeholder {
+  color: #958c96;
+  opacity: 1;
+}
+.ss-control > svg {
+  flex-shrink: 0;
+}
+.ss-control .ss-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 40px;
+  height: 40px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: #948795;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.ss-toggle svg {
+  transition: transform 0.15s;
+}
+.ss-control.is-open .ss-toggle svg {
+  transform: rotate(180deg);
+}
+.ss-control.is-disabled {
+  opacity: 0.55;
+  background: #f5f2ef;
+}
+.ss-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  padding: 6px;
+  border: 1px solid #e9e1db;
+  border-radius: 14px;
+  background: #fffdfa;
+  box-shadow:
+    0 12px 32px #49312b1a,
+    0 2px 6px #49312b08;
+}
+.ss-caption {
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #968b95;
+}
+.ss-list {
+  max-height: min(240px, 35dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ss-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 9px;
+  color: #504652;
+  cursor: pointer;
+}
+.ss-option:hover,
+.ss-option.is-active {
+  background: #f5eee8;
+}
+.ss-option.is-selected {
+  color: #af5039;
+}
+.ss-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: #f3e8df;
+  border-radius: 9px;
+  color: #b06e54;
+  font-size: 12px;
+}
+.ss-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.ss-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 22px 12px;
+  color: #9a899c;
+  text-align: center;
+}
+.ss-empty strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: #635967;
+}
+.ss-empty span {
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ss-control,
+  .ss-toggle svg {
+    transition: none;
+  }
+}

@@ -1,29 +1,44 @@
-import { Prisma } from '@prisma/client';
-import { prisma } from '../../config/prisma';
-import { generateInstallments } from '../../utils/installments';
+import { queueEmail } from "../email/email.service";
+import { formatMoney } from "../../utils/money";
+import { env } from "../../config/env";
+import {
+  cashBalance,
+  reservedCash,
+  lockFamily,
+  postLedger,
+} from "../cash/ledger.service";
+import { Prisma } from "@prisma/client";
+import { prisma } from "../../config/prisma";
+import { generateInstallments } from "../../utils/installments";
 import {
   WorkflowError,
   assertAssignedActor,
   requireOperationalActor,
   type WorkflowActor,
-} from './approval.rules';
-import { queueLoanEvent } from '../notifications/notification.service';
-import { publicPerson } from './approval-policy.service';
+} from "./approval.rules";
+import { queueLoanEvent } from "../notifications/notification.service";
+import { publicPerson } from "./approval-policy.service";
 
 type Tx = Prisma.TransactionClient;
 export const requestInclude = {
   maker: { select: publicPerson },
   policy: { select: { version: true } },
   steps: {
-    orderBy: { sequence: 'asc' as const },
+    orderBy: { sequence: "asc" as const },
     include: { assignedUser: { select: publicPerson } },
   },
   actions: {
-    orderBy: { actedAt: 'asc' as const },
+    orderBy: { actedAt: "asc" as const },
     include: { actor: { select: publicPerson } },
   },
   loan: {
-    select: { id: true, purpose: true, status: true, tenorMonths: true },
+    select: {
+      id: true,
+      purpose: true,
+      status: true,
+      tenorMonths: true,
+      fundRequest: true,
+    },
   },
 };
 
@@ -35,15 +50,32 @@ async function notify(
   message: string,
   requestId: string,
 ) {
-  // Approval task notifications are in-app and independent of the legacy WhatsApp worker.
+  const detail = await tx.approvalRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      loan: {
+        include: { borrower: { select: { name: true } }, fundRequest: true },
+      },
+    },
+  });
+  const loan = detail?.loan;
+  const fund = loan?.fundRequest;
+  const body = `${message}${loan ? ` Pemohon: ${loan.borrower.name}. Total permintaan ${formatMoney(fund?.amount ?? loan.principalAmount)}; tarikan sendiri ${formatMoney(fund?.withdrawalAmount ?? 0)}; pinjaman ${formatMoney(loan.principalAmount)}. Tujuan: ${loan.purpose}. Tanggal: ${loan.requestedAt.toISOString()}.` : ""} ${env.FRONTEND_URL.replace(/\/$/, "")}/?view=approvals&request=${requestId}`;
+  await queueEmail(tx, {
+    eventKey: `APPROVAL:${requestId}:${userId}:${detail?.currentStep}:${title}`,
+    userId,
+    familyId,
+    subject: title,
+    body,
+  });
   await tx.notification.create({
     data: {
       userId,
       familyId,
-      type: 'GENERAL',
+      type: "GENERAL",
       title,
-      message,
-      metadata: { approvalRequestId: requestId, view: 'approvals' },
+      message: body,
+      metadata: { approvalRequestId: requestId, view: "approvals" },
     },
   });
 }
@@ -60,7 +92,7 @@ async function audit(
       actorId,
       familyId,
       action,
-      entityType: 'ApprovalRequest',
+      entityType: "ApprovalRequest",
       entityId: requestId,
       after: { notes: notes ?? null },
     },
@@ -81,36 +113,36 @@ export async function createLoanApproval(
   // Configuration updates and new submissions share the family lock.
   await tx.$queryRaw`SELECT id FROM "Family" WHERE id = ${loan.familyId}::uuid FOR UPDATE`;
   const policy = await tx.approvalPolicy.findFirst({
-    where: { familyId: loan.familyId, transactionType: 'LOAN', active: true },
-    include: { assignments: { orderBy: { sequence: 'asc' } } },
+    where: { familyId: loan.familyId, transactionType: "LOAN", active: true },
+    include: { assignments: { orderBy: { sequence: "asc" } } },
   });
   if (!policy)
     throw new WorkflowError(
-      'WORKFLOW_NOT_CONFIGURED',
-      'Hirarki pinjaman belum diatur. Hubungi Admin keluarga atau Super Admin.',
+      "WORKFLOW_NOT_CONFIGURED",
+      "Hirarki pinjaman belum diatur. Hubungi Admin keluarga atau Super Admin.",
     );
   if (
     !policy.assignments.some(
-      (item) => item.permission === 'MAKER' && item.userId === actor.sub,
+      (item) => item.permission === "MAKER" && item.userId === actor.sub,
     )
   )
     throw new WorkflowError(
-      'NOT_ASSIGNED_AS_MAKER',
-      'Anda belum ditetapkan sebagai Maker untuk keluarga ini.',
+      "NOT_ASSIGNED_AS_MAKER",
+      "Anda belum ditetapkan sebagai Maker untuk keluarga ini.",
       403,
     );
   const stages = policy.assignments.filter(
-    (item) => item.permission !== 'MAKER',
+    (item) => item.permission !== "MAKER",
   );
   if (
     stages.length < 2 ||
-    stages.at(-1)?.permission !== 'RELEASER' ||
-    stages.slice(0, -1).some((item) => item.permission !== 'APPROVER') ||
+    stages.at(-1)?.permission !== "RELEASER" ||
+    stages.slice(0, -1).some((item) => item.permission !== "APPROVER") ||
     new Set(stages.map((item) => item.userId)).size !== stages.length
   )
     throw new WorkflowError(
-      'WORKFLOW_INVALID',
-      'Hirarki harus berisi approver berurutan dan satu releaser berbeda.',
+      "WORKFLOW_INVALID",
+      "Hirarki harus berisi approver berurutan dan satu releaser berbeda.",
     );
   if (
     stages.some(
@@ -118,8 +150,8 @@ export async function createLoanApproval(
     )
   )
     throw new WorkflowError(
-      'SELF_APPROVAL_NOT_ALLOWED',
-      'Pembuat/peminjam tidak boleh menjadi approver atau releaser pada pengajuan yang sama. Perbaiki hirarki terlebih dahulu.',
+      "SELF_APPROVAL_NOT_ALLOWED",
+      "Pembuat/peminjam tidak boleh menjadi approver atau releaser pada pengajuan yang sama. Perbaiki hirarki terlebih dahulu.",
       403,
     );
   const ids = stages.map((item) => item.userId);
@@ -127,14 +159,14 @@ export async function createLoanApproval(
     where: {
       familyId: loan.familyId,
       userId: { in: ids },
-      status: 'ACTIVE',
-      user: { isActive: true, systemRole: 'USER' },
+      status: "ACTIVE",
+      user: { isActive: true, systemRole: "USER" },
     },
   });
   if (active !== new Set(ids).size)
     throw new WorkflowError(
-      'INACTIVE_WORKFLOW_ACTOR',
-      'Ada petugas hirarki yang tidak aktif. Hubungi Admin.',
+      "INACTIVE_WORKFLOW_ACTOR",
+      "Ada petugas hirarki yang tidak aktif. Hubungi Admin.",
     );
   const request = await tx.approvalRequest.create({
     data: {
@@ -150,30 +182,37 @@ export async function createLoanApproval(
           assignedUserId: item.userId,
         })),
       },
-      actions: { create: { step: 0, actorId: actor.sub, action: 'SUBMIT' } },
+      actions: {
+        create: {
+          step: 0,
+          actorId: actor.sub,
+          action: "SUBMIT",
+          afterStatus: "PENDING_APPROVAL",
+        },
+      },
     },
   });
   await tx.loan.update({
     where: { id: loan.id },
     data: { approvalRequestId: request.id },
   });
-  await audit(tx, request.id, loan.familyId, actor.sub, 'LOAN_SUBMITTED');
-  await queueLoanEvent(tx, loan.id, 'LOAN_REQUESTED', false);
+  await audit(tx, request.id, loan.familyId, actor.sub, "LOAN_SUBMITTED");
+  await queueLoanEvent(tx, loan.id, "LOAN_REQUESTED", false);
   if (actor.sub !== loan.borrowerId)
     await notify(
       tx,
       actor.sub,
       loan.familyId,
-      'Pengajuan pinjaman diterima',
-      'Pengajuan menunggu persetujuan sesuai hirarki keluarga.',
+      "Pengajuan pinjaman diterima",
+      "Pengajuan menunggu persetujuan sesuai hirarki keluarga.",
       request.id,
     );
   await notify(
     tx,
     stages[0].userId,
     loan.familyId,
-    'Tugas persetujuan baru',
-    'Ada pengajuan pinjaman yang menunggu keputusan Anda pada tahap 1.',
+    "Tugas persetujuan baru",
+    "Ada pengajuan pinjaman yang menunggu keputusan Anda pada tahap 1.",
     request.id,
   );
   return request;
@@ -182,34 +221,38 @@ export async function createLoanApproval(
 export async function actOnRequest(
   actor: WorkflowActor,
   id: string,
-  action: 'APPROVE' | 'REJECT' | 'RETURN' | 'RELEASE',
+  action: "APPROVE" | "REJECT" | "RETURN" | "RELEASE",
   notes?: string,
 ) {
   if (!actor.familyId)
     throw new WorkflowError(
-      'FAMILY_REQUIRED',
-      'Pilih keluarga aktif terlebih dahulu.',
+      "FAMILY_REQUIRED",
+      "Pilih keluarga aktif terlebih dahulu.",
       403,
     );
   requireOperationalActor(actor, actor.familyId);
   return prisma.$transaction(async (tx) => {
+    await lockFamily(tx, actor.familyId!);
     const rows = await tx.$queryRaw<
       { id: string }[]
     >`SELECT id FROM "ApprovalRequest" WHERE id = ${id}::uuid AND "familyId" = ${actor.familyId}::uuid FOR UPDATE`;
     if (!rows.length)
       throw new WorkflowError(
-        'REQUEST_NOT_FOUND',
-        'Pengajuan tidak ditemukan.',
+        "REQUEST_NOT_FOUND",
+        "Pengajuan tidak ditemukan.",
         404,
       );
     const request = await tx.approvalRequest.findUniqueOrThrow({
       where: { id },
-      include: { steps: { orderBy: { sequence: 'asc' } }, loan: true },
+      include: {
+        steps: { orderBy: { sequence: "asc" } },
+        loan: { include: { fundRequest: true } },
+      },
     });
     const completed = await tx.approvalAction.findFirst({
       where: { requestId: id, actorId: actor.sub, action },
     });
-    if (completed && (action === 'APPROVE' || action === 'RELEASE'))
+    if (completed && (action === "APPROVE" || action === "RELEASE"))
       return tx.approvalRequest.findUniqueOrThrow({
         where: { id },
         include: requestInclude,
@@ -219,22 +262,22 @@ export async function actOnRequest(
     );
     if (
       !step ||
-      !['PENDING_APPROVAL', 'PENDING_RELEASE'].includes(request.status) ||
-      step.status !== 'WAITING'
+      !["PENDING_APPROVAL", "PENDING_RELEASE"].includes(request.status) ||
+      step.status !== "WAITING"
     )
       throw new WorkflowError(
-        'REQUEST_ALREADY_PROCESSED',
-        'Pengajuan tidak lagi menunggu tindakan ini.',
+        "REQUEST_ALREADY_PROCESSED",
+        "Pengajuan tidak lagi menunggu tindakan ini.",
       );
     const expected =
-      request.status === 'PENDING_APPROVAL' ? 'APPROVER' : 'RELEASER';
+      request.status === "PENDING_APPROVAL" ? "APPROVER" : "RELEASER";
     if (
-      (action === 'RELEASE') !== (expected === 'RELEASER') ||
+      (action === "RELEASE") !== (expected === "RELEASER") ||
       step.permission !== expected
     )
       throw new WorkflowError(
-        'INVALID_WORKFLOW_ACTION',
-        'Tindakan tidak sesuai tahap yang sedang berjalan.',
+        "INVALID_WORKFLOW_ACTION",
+        "Tindakan tidak sesuai tahap yang sedang berjalan.",
       );
     assertAssignedActor(
       actor.sub,
@@ -242,7 +285,7 @@ export async function actOnRequest(
       step.assignedUserId,
       expected,
       request.steps
-        .filter((item) => item.permission === 'APPROVER')
+        .filter((item) => item.permission === "APPROVER")
         .map((item) => item.assignedUserId),
     );
     const member = await tx.familyMember.findUnique({
@@ -252,13 +295,13 @@ export async function actOnRequest(
       include: { user: { select: { isActive: true, systemRole: true } } },
     });
     if (
-      member?.status !== 'ACTIVE' ||
+      member?.status !== "ACTIVE" ||
       !member.user.isActive ||
-      member.user.systemRole === 'SUPER_ADMIN'
+      member.user.systemRole === "SUPER_ADMIN"
     )
       throw new WorkflowError(
-        'NOT_ACTIVE_MEMBER',
-        'Petugas bukan anggota aktif keluarga ini.',
+        "NOT_ACTIVE_MEMBER",
+        "Petugas bukan anggota aktif keluarga ini.",
         403,
       );
     const loan = request.loan;
@@ -268,27 +311,38 @@ export async function actOnRequest(
       !loan.principalAmount.equals(request.amount)
     )
       throw new WorkflowError(
-        'REQUEST_DATA_CHANGED',
-        'Data pinjaman tidak sesuai snapshot pengajuan.',
+        "REQUEST_DATA_CHANGED",
+        "Data pinjaman tidak sesuai snapshot pengajuan.",
       );
     if (actor.sub === loan.borrowerId)
       throw new WorkflowError(
-        'SELF_APPROVAL_NOT_ALLOWED',
-        'Peminjam tidak boleh memutuskan atau mencairkan pinjamannya sendiri.',
+        "SELF_APPROVAL_NOT_ALLOWED",
+        "Peminjam tidak boleh memutuskan atau mencairkan pinjamannya sendiri.",
         403,
       );
+    const fund = loan.fundRequest;
+    if (action === "APPROVE" || action === "RELEASE") {
+      const available = (await cashBalance(tx, loan.familyId)).sub(
+        await reservedCash(tx, loan.familyId, fund?.id),
+      );
+      if (available.lt(fund?.amount ?? loan.principalAmount))
+        throw new WorkflowError(
+          "INSUFFICIENT_FAMILY_CASH",
+          "Saldo Kas Keluarga tidak mencukupi untuk transaksi ini.",
+        );
+    }
     const now = new Date();
-    if (action === 'RELEASE') {
+    if (action === "RELEASE") {
       if (
-        loan.status !== 'APPROVED' ||
+        loan.status !== "APPROVED" ||
         request.steps.some(
           (item) =>
-            item.permission === 'APPROVER' && item.status !== 'APPROVED',
+            item.permission === "APPROVER" && item.status !== "APPROVED",
         )
       )
         throw new WorkflowError(
-          'REQUEST_NOT_APPROVED',
-          'Seluruh tahap persetujuan harus selesai sebelum pencairan.',
+          "REQUEST_NOT_APPROVED",
+          "Seluruh tahap persetujuan harus selesai sebelum pencairan.",
         );
       const borrower = await tx.familyMember.findUnique({
         where: {
@@ -296,28 +350,10 @@ export async function actOnRequest(
         },
         include: { user: { select: { isActive: true } } },
       });
-      if (borrower?.status !== 'ACTIVE' || !borrower.user.isActive)
+      if (borrower?.status !== "ACTIVE" || !borrower.user.isActive)
         throw new WorkflowError(
-          'MEMBER_NOT_FOUND',
-          'Peminjam tidak lagi aktif.',
-        );
-      await tx.$queryRaw`SELECT id FROM "Family" WHERE id = ${loan.familyId}::uuid FOR UPDATE`;
-      const sums = await tx.ledgerEntry.groupBy({
-        by: ['direction'],
-        where: { familyId: loan.familyId },
-        _sum: { amount: true },
-      });
-      const balance = sums.reduce(
-        (total, row) =>
-          row.direction === 'IN'
-            ? total.add(row._sum.amount ?? 0)
-            : total.sub(row._sum.amount ?? 0),
-        new Prisma.Decimal(0),
-      );
-      if (balance.lt(request.amount))
-        throw new WorkflowError(
-          'INSUFFICIENT_FAMILY_CASH',
-          'Saldo kas keluarga tidak mencukupi.',
+          "MEMBER_NOT_FOUND",
+          "Peminjam tidak lagi aktif.",
         );
       const installments = generateInstallments(
         BigInt(request.amount.toFixed(0)),
@@ -326,8 +362,8 @@ export async function actOnRequest(
         1,
       );
       await tx.loan.update({
-        where: { id: loan.id, status: 'APPROVED' },
-        data: { status: 'ACTIVE', disbursedAt: now },
+        where: { id: loan.id, status: "APPROVED" },
+        data: { status: "ACTIVE", disbursedAt: now },
       });
       await tx.loanInstallment.createMany({
         data: installments.map((item) => ({
@@ -338,120 +374,154 @@ export async function actOnRequest(
           remainingAmount: item.remainingAmount.toString(),
         })),
       });
-      await tx.ledgerEntry.create({
-        data: {
+      if (fund && fund.withdrawalAmount.gt(0)) {
+        await postLedger(
+          tx,
+          {
+            familyId: loan.familyId,
+            type: "WITHDRAWAL",
+            direction: "OUT",
+            amount: fund.withdrawalAmount,
+            ownerUserId: loan.borrowerId,
+            createdById: actor.sub,
+            description: fund.purpose,
+            referenceType: "FUND_REQUEST",
+            referenceId: fund.id,
+          },
+          fund.id,
+        );
+      }
+      await postLedger(
+        tx,
+        {
           familyId: loan.familyId,
-          type: 'LOAN_DISBURSEMENT',
-          direction: 'OUT',
+          type: "LOAN_DISBURSEMENT",
+          direction: "OUT",
           amount: request.amount,
-          description: `Pencairan pinjaman ${loan.id}`,
-          referenceType: 'LOAN',
-          referenceId: loan.id,
           createdById: actor.sub,
+          description: `Pencairan pinjaman ${loan.id}`,
+          referenceType: "LOAN",
+          referenceId: loan.id,
         },
-      });
+        fund?.id,
+      );
+      if (fund)
+        await tx.fundRequest.update({
+          where: { id: fund.id },
+          data: { status: "ACTIVE" },
+        });
       await tx.approvalStep.update({
         where: { id: step.id },
-        data: { status: 'RELEASED', actedAt: now },
+        data: { status: "RELEASED", actedAt: now },
       });
       await tx.approvalRequest.update({
         where: { id },
-        data: { status: 'RELEASED', completedAt: now },
+        data: { status: "RELEASED", completedAt: now },
       });
-      await queueLoanEvent(tx, loan.id, 'LOAN_DISBURSED');
-    } else if (action === 'APPROVE') {
-      if (loan.status !== 'PENDING')
+      await queueLoanEvent(tx, loan.id, "LOAN_DISBURSED");
+    } else if (action === "APPROVE") {
+      if (loan.status !== "PENDING")
         throw new WorkflowError(
-          'REQUEST_ALREADY_PROCESSED',
-          'Status pinjaman sudah berubah.',
+          "REQUEST_ALREADY_PROCESSED",
+          "Status pinjaman sudah berubah.",
         );
       const next = request.steps.find(
         (item) => item.sequence === step.sequence + 1,
       );
       if (!next)
         throw new WorkflowError(
-          'WORKFLOW_INVALID',
-          'Tahap releaser tidak ditemukan.',
+          "WORKFLOW_INVALID",
+          "Tahap releaser tidak ditemukan.",
         );
       await tx.approvalStep.update({
         where: { id: step.id },
-        data: { status: 'APPROVED', actedAt: now },
+        data: { status: "APPROVED", actedAt: now },
       });
       await tx.approvalRequest.update({
         where: { id },
         data: {
           currentStep: next.sequence,
           status:
-            next.permission === 'RELEASER'
-              ? 'PENDING_RELEASE'
-              : 'PENDING_APPROVAL',
+            next.permission === "RELEASER"
+              ? "PENDING_RELEASE"
+              : "PENDING_APPROVAL",
         },
       });
-      if (next.permission === 'RELEASER') {
+      if (next.permission === "RELEASER") {
         await tx.loan.update({
           where: { id: loan.id },
           data: {
-            status: 'APPROVED',
+            status: "APPROVED",
             approvedById: actor.sub,
             approvedAt: now,
           },
         });
-        await queueLoanEvent(tx, loan.id, 'LOAN_APPROVED');
+        if (fund)
+          await tx.fundRequest.update({
+            where: { id: fund.id },
+            data: { status: "APPROVED" },
+          });
+        await queueLoanEvent(tx, loan.id, "LOAN_APPROVED");
       }
       await notify(
         tx,
         next.assignedUserId,
         loan.familyId,
-        next.permission === 'RELEASER'
-          ? 'Tugas pencairan baru'
-          : 'Tugas persetujuan baru',
+        next.permission === "RELEASER"
+          ? "Tugas pencairan baru"
+          : "Tugas persetujuan baru",
         `Pengajuan menunggu tindakan Anda pada tahap ${next.sequence}.`,
         id,
       );
     } else {
-      if (loan.status !== 'PENDING')
+      if (loan.status !== "PENDING")
         throw new WorkflowError(
-          'REQUEST_ALREADY_PROCESSED',
-          'Status pinjaman sudah berubah.',
+          "REQUEST_ALREADY_PROCESSED",
+          "Status pinjaman sudah berubah.",
         );
       if (!notes?.trim())
         throw new WorkflowError(
-          'NOTE_REQUIRED',
-          'Alasan penolakan atau pengembalian wajib diisi.',
+          "NOTE_REQUIRED",
+          "Alasan penolakan atau pengembalian wajib diisi.",
           400,
         );
       await tx.approvalStep.update({
         where: { id: step.id },
         data: {
-          status: action === 'REJECT' ? 'REJECTED' : 'RETURNED',
+          status: action === "REJECT" ? "REJECTED" : "RETURNED",
           actedAt: now,
         },
       });
       await tx.approvalRequest.update({
         where: { id },
         data: {
-          status: action === 'REJECT' ? 'REJECTED' : 'RETURNED',
+          status: action === "REJECT" ? "REJECTED" : "RETURNED",
           completedAt: now,
         },
       });
       await tx.loan.update({
         where: { id: loan.id },
         data: {
-          status: action === 'REJECT' ? 'REJECTED' : 'CANCELLED',
+          status: action === "REJECT" ? "REJECTED" : "CANCELLED",
           rejectedById: actor.sub,
           rejectedAt: now,
           rejectionReason: notes,
         },
       });
-      if (action === 'REJECT')
-        await queueLoanEvent(tx, loan.id, 'LOAN_REJECTED');
-      if (action === 'RETURN' || request.makerId !== loan.borrowerId)
+      if (fund)
+        await tx.fundRequest.update({
+          where: { id: fund.id },
+          data: { status: action === "REJECT" ? "REJECTED" : "CANCELLED" },
+        });
+      if (action === "REJECT")
+        await queueLoanEvent(tx, loan.id, "LOAN_REJECTED");
+      if (action === "RETURN" || request.makerId !== loan.borrowerId)
         await notify(
           tx,
           request.makerId,
           request.familyId,
-          action === 'REJECT' ? 'Pengajuan ditolak' : 'Pengajuan dikembalikan',
-          `${notes}${action === 'RETURN' ? ' Silakan ajukan kembali data yang sudah diperbaiki.' : ''}`,
+          action === "REJECT" ? "Pengajuan ditolak" : "Pengajuan dikembalikan",
+          `${notes}${action === "RETURN" ? " Silakan ajukan kembali data yang sudah diperbaiki." : ""}`,
           id,
         );
     }
@@ -461,6 +531,19 @@ export async function actOnRequest(
         step: step.sequence,
         actorId: actor.sub,
         action,
+        beforeStatus: request.status,
+        afterStatus:
+          action === "RELEASE"
+            ? "RELEASED"
+            : action === "REJECT"
+              ? "REJECTED"
+              : action === "RETURN"
+                ? "RETURNED"
+                : request.steps.find(
+                      (item) => item.sequence === step.sequence + 1,
+                    )?.permission === "RELEASER"
+                  ? "PENDING_RELEASE"
+                  : "PENDING_APPROVAL",
         notes,
       },
     });

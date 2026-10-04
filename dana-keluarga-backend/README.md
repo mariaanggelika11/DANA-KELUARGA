@@ -16,15 +16,15 @@ npm start
 
 Production memakai `npx prisma migrate deploy`, bukan `db push`. REST API menggunakan `/health`, `/ready`, `/api/v1/auth/login`, dan `/api/v1/dashboard/summary` pada fondasi awal ini.
 
-Isi credential PostgreSQL, JWT, seed admin, payment provider, dan WhatsApp hanya melalui `.env`. Versi ini hanya memproses pratinjau WhatsApp; koneksi/session WhatsApp nyata belum tersedia.
+Notifikasi menggunakan outbox email dengan retry. Pengiriman nyata memerlukan konfigurasi SMTP; pembayaran online masih sandbox.
 
 ## Role dan registrasi
 
-`SUPER_ADMIN` adalah role global pemilik aplikasi dan dibuat melalui `SEED_SUPER_ADMIN_*`. Setelah login, Super Admin membuat keluarga beserta Admin pertama melalui `POST /api/v1/management/families`. Admin keluarga kemudian mendaftarkan user baru melalui `POST /api/v1/management/members` dengan role `MEMBER` atau `TREASURER`. Registrasi publik tidak tersedia.
+`SUPER_ADMIN` adalah role global pemilik aplikasi dan dibuat melalui `SEED_SUPER_ADMIN_*`. Setelah login, Super Admin membuat keluarga beserta Admin pertama melalui `POST /api/v1/management/families`. Admin keluarga kemudian mendaftarkan user baru melalui `POST /api/v1/management/members` dengan role `MEMBER` atau `ADMIN`. Peran legacy `TREASURER` tetap dipertahankan pada data lama dan tidak ditawarkan pada pendaftaran baru. Registrasi publik tidak tersedia.
 
-## WhatsApp dan pembayaran simulasi
+Notifikasi menggunakan outbox email dengan retry. Pengiriman nyata memerlukan konfigurasi SMTP; pembayaran online masih sandbox.
 
-Baca [panduan lengkap](../docs/whatsapp-simulation.md). Gunakan database pengembangan terpisah, jalankan `npx prisma generate` dan `npx prisma migrate deploy`, lalu `npm run dev`. Pengaturan default: `WHATSAPP_ENABLED=false`, `WHATSAPP_MODE=simulation`, `PAYMENT_PROVIDER=sandbox`.
+Lihat [panduan Kas Keluarga dan email](../docs/FAMILY_CASH.md) untuk migration, konfigurasi SMTP, dan pengujian. Pembayaran online masih menggunakan sandbox.
 
 - `GET /api/v1/notifications`: riwayat pesan berdasarkan hak akses, 50 per halaman (`?page=1`).
 - `GET/PATCH /api/v1/notifications/preferences`: nomor dan persetujuan akun sendiri; PATCH menerima `{ "enabled": true }`.
@@ -39,4 +39,14 @@ Worker berjalan di proses server setiap 30 detik. `npm test` memakai mock databa
 
 `GET /api/v1/notifications/inbox?page=1&unread=false` mengembalikan pemberitahuan akun sendiri, 20 per halaman. `GET /api/v1/notifications/inbox/unread-count` menyediakan jumlah untuk badge lonceng. `PATCH /api/v1/notifications/inbox/:id/read` dan `PATCH /api/v1/notifications/inbox/read-all` hanya mengubah status baca milik akun yang login. Hak admin tidak memberi akses menandai kotak masuk akun lain.
 
-Kotak masuk tetap menerima aktivitas baru walaupun persetujuan WhatsApp dimatikan. Status baca aplikasi terpisah dari status pengiriman WhatsApp. Tabel `Notification` yang sudah ada digunakan tanpa migration tambahan.
+Pemberitahuan dikirim melalui email akun dan dicatat pada inbox aplikasi. Konfigurasi EMAIL_MODE menentukan pengiriman SMTP, simulasi, atau nonaktif.
+
+## Registrasi yang konsisten
+
+Baca [alur registrasi dan hasil audit UI/API](../docs/AUDIT_2026-09-18.md). Endpoint pembuatan akun mewajibkan `email`, `password` dan `confirmPassword`, selain nama dan nomor telepon. Email dipakai untuk masuk. Registrasi tetap dikelola administrator; tidak ada registrasi publik atau pengiriman undangan otomatis.
+
+Super Admin menggunakan `POST /api/v1/management/registrations` dengan `type` `NEW_FAMILY`, `NEW_MEMBER`, atau `EXISTING_MEMBER`. Akun lama hanya memerlukan `existingUserId`, `familyId`, dan `role`; passwordnya tidak diubah. Ketiga jalur dan endpoint kompatibilitas `/management/families`/`members` memakai service transaksi yang sama. Jangan memanggil seed untuk menguji alur registrasi pada database produksi.
+
+## Kas Keluarga
+
+Aturan kontribusi/tarikan/pinjaman, API, pengujian, SMTP, dan status migration terbaru: [panduan Kas Keluarga](../docs/FAMILY_CASH.md). Migration kas sudah diterapkan. Database dikosongkan atas permintaan pengguna dan hanya akun Super Admin dipertahankan. Jangan menjalankan seed jika ingin mempertahankan kondisi kosong.
