@@ -38,13 +38,17 @@ export async function enqueue(
   )
     ? (data.kind as NotificationType)
     : NotificationType.GENERAL;
-  const inserted = await queueEmail(tx, {
-    eventKey: data.eventKey,
-    userId: data.userId,
-    familyId: data.familyId,
-    subject: titles[data.kind] ?? "Pemberitahuan keluarga",
-    body: data.body,
-  });
+  const inserted = await queueEmail(
+    tx,
+    {
+      eventKey: data.eventKey,
+      userId: data.userId,
+      familyId: data.familyId,
+      subject: titles[data.kind] ?? "Pemberitahuan keluarga",
+      body: data.body,
+    },
+    data.kind,
+  );
   if (inserted.count) {
     await tx.notification.create({
       data: {

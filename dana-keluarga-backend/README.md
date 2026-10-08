@@ -39,7 +39,7 @@ Worker berjalan di proses server setiap 30 detik. `npm test` memakai mock databa
 
 `GET /api/v1/notifications/inbox?page=1&unread=false` mengembalikan pemberitahuan akun sendiri, 20 per halaman. `GET /api/v1/notifications/inbox/unread-count` menyediakan jumlah untuk badge lonceng. `PATCH /api/v1/notifications/inbox/:id/read` dan `PATCH /api/v1/notifications/inbox/read-all` hanya mengubah status baca milik akun yang login. Hak admin tidak memberi akses menandai kotak masuk akun lain.
 
-Pemberitahuan dikirim melalui email akun dan dicatat pada inbox aplikasi. Konfigurasi EMAIL_MODE menentukan pengiriman SMTP, simulasi, atau nonaktif.
+Pemberitahuan dicatat pada inbox aplikasi. Email hanya dikirim untuk tagihan (pengingat H-3/H, pencairan, pembayaran), pengajuan pinjaman, dan persetujuan/penolakan; setoran dan tarikan kas hanya muncul di inbox. `EMAIL_MODE` memilih penyedia: `smtp` (mis. Brevo), `resend`, `simulation`, atau `disabled`. Pindah penyedia cukup dengan mengubah `.env` lalu restart API; lihat [panduan email](../docs/FAMILY_CASH.md#email).
 
 ## Registrasi yang konsisten
 

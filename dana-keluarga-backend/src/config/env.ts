@@ -4,6 +4,10 @@ import { z } from "zod";
 export const booleanEnv = z
   .enum(["true", "false"])
   .transform((value) => value === "true");
+const optionalString = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().trim().min(1).optional(),
+);
 
 const schema = z.object({
   NODE_ENV: z
@@ -14,13 +18,20 @@ const schema = z.object({
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
-  EMAIL_MODE: z.enum(["disabled", "simulation", "smtp"]).default("disabled"),
+  // smtp (e.g. Brevo) and resend both deliver real email; switch by changing EMAIL_MODE.
+  EMAIL_MODE: z
+    .enum(["disabled", "simulation", "smtp", "resend"])
+    .default("disabled"),
+  EMAIL_FROM: optionalString,
+  EMAIL_REPLY_TO: optionalString,
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
   SMTP_SECURE: booleanEnv.default(false),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
-  SMTP_FROM: z.string().default("Dana Keluarga <no-reply@localhost>"),
+  // Deprecated alias of EMAIL_FROM, kept so existing .env files keep working.
+  SMTP_FROM: optionalString,
+  RESEND_API_KEY: optionalString,
   PAYMENT_PROVIDER: z.enum(["sandbox", "midtrans"]).default("sandbox"),
   MIDTRANS_SERVER_KEY: z.string().optional(),
   MIDTRANS_IS_PRODUCTION: booleanEnv.default(false),
@@ -28,12 +39,19 @@ const schema = z.object({
   NOTIFICATION_POLL_MS: z.coerce.number().int().min(1000).default(30000),
 });
 
-export const env = schema.parse(process.env);
+const parsed = schema.parse(process.env);
+export const env = {
+  ...parsed,
+  EMAIL_FROM:
+    parsed.EMAIL_FROM ??
+    parsed.SMTP_FROM ??
+    "Dana Keluarga <no-reply@localhost>",
+};
 
-if (
-  env.EMAIL_MODE === "smtp" &&
-  (!env.SMTP_HOST || env.SMTP_FROM.includes("@localhost"))
-)
-  throw new Error(
-    "SMTP_HOST dan SMTP_FROM wajib diatur untuk pengiriman email nyata.",
-  );
+const realEmail = env.EMAIL_MODE === "smtp" || env.EMAIL_MODE === "resend";
+if (realEmail && env.EMAIL_FROM.includes("@localhost"))
+  throw new Error("EMAIL_FROM wajib diatur untuk pengiriman email nyata.");
+if (env.EMAIL_MODE === "smtp" && !env.SMTP_HOST)
+  throw new Error("SMTP_HOST wajib diatur untuk EMAIL_MODE=smtp.");
+if (env.EMAIL_MODE === "resend" && !env.RESEND_API_KEY)
+  throw new Error("RESEND_API_KEY wajib diatur untuk EMAIL_MODE=resend.");

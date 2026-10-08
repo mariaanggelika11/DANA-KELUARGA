@@ -259,6 +259,21 @@ describe("personal inbox creation", () => {
       }),
     );
   });
+  it("keeps family cash notices in the inbox without emailing them", async () => {
+    await enqueue(tx, {
+      eventKey: "CONTRIBUTION:entry",
+      userId: "member",
+      familyId: "family-a",
+      kind: "CONTRIBUTION",
+      body: "Setoran dicatat",
+      view: "cash",
+    });
+    expect(db.emailMessage.createMany.mock.calls[0][0].data[0]).toMatchObject({
+      status: "CANCELLED",
+      lastError: "Jenis pemberitahuan ini tidak dikirim lewat email",
+    });
+    expect(db.notification.create).toHaveBeenCalledTimes(1);
+  });
   it("does not duplicate inbox notices on repeated events", async () => {
     db.emailMessage.createMany.mockResolvedValue({ count: 0 });
     await enqueue(tx, {

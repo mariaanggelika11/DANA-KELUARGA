@@ -98,11 +98,11 @@ export function EmailSettings() {
               Pemberitahuan dikirim ke email yang terdaftar pada akun. Hubungi
               Admin jika alamat email perlu diperbaiki.
             </p>
-            {preferences.mode !== "smtp" && (
+            {preferences.mode !== "smtp" && preferences.mode !== "resend" && (
               <Feedback tone="warning">
                 {preferences.mode === "simulation"
                   ? "Pengiriman masih dalam mode simulasi. Belum ada email nyata yang dikirim."
-                  : "Pengiriman email belum diaktifkan. Pengelola perlu mengatur layanan SMTP."}
+                  : "Pengiriman email belum diaktifkan. Pengelola perlu mengatur layanan email (SMTP atau Resend)."}
               </Feedback>
             )}
             <h3>Riwayat pengiriman email</h3>

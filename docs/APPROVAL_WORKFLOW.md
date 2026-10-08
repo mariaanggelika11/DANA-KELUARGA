@@ -78,7 +78,7 @@ URL approve/reject/disburse pinjaman versi lama tetap mengarah ke engine yang sa
 
 ## Notifikasi dan batas integrasi
 
-Tugas per tahap dan event pinjaman menggunakan notifikasi di aplikasi serta outbox email. Tugas dikirim kepada approver yang sedang bertugas. Pengiriman email nyata memerlukan konfigurasi SMTP.
+Tugas per tahap dan event pinjaman menggunakan notifikasi di aplikasi serta outbox email. Tugas dikirim kepada approver yang sedang bertugas. Pengiriman email nyata memerlukan konfigurasi `EMAIL_MODE=smtp` (mis. Brevo) atau `EMAIL_MODE=resend`.
 
 ## Verifikasi
 

@@ -1,9 +1,34 @@
 import { formatMoney } from "../../utils/money";
 import { wibDay } from "../../utils/calendar";
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { env } from "../../config/env";
+import { renderEmail } from "./email.templates";
+
+export type OutgoingEmail = {
+  id: string;
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  idempotencyKey: string;
+};
+export type EmailSender = (email: OutgoingEmail) => Promise<void>;
+// Thrown by senders; permanent errors (bad credentials, unverified sender) are not retried.
+export class EmailDeliveryError extends Error {
+  constructor(
+    message: string,
+    readonly permanent: boolean,
+  ) {
+    super(message);
+  }
+}
+
+// Only billing, loan requests and loan decisions are emailed; other events stay in the in-app inbox.
+const INBOX_ONLY_KINDS = new Set(["CONTRIBUTION", "WITHDRAWAL"]);
+
 export async function queueEmail(
   tx: Prisma.TransactionClient,
   data: {
@@ -13,15 +38,23 @@ export async function queueEmail(
     subject: string;
     body: string;
   },
+  kind?: string,
 ) {
+  // Skipped emails are still recorded: the unique eventKey keeps the inbox write idempotent.
+  const reason =
+    env.EMAIL_MODE === "disabled"
+      ? "Pengiriman email dinonaktifkan"
+      : kind && INBOX_ONLY_KINDS.has(kind)
+        ? "Jenis pemberitahuan ini tidak dikirim lewat email"
+        : null;
   return tx.emailMessage.createMany({
     data: [
       {
         ...data,
-        ...(env.EMAIL_MODE === "disabled"
+        ...(reason
           ? {
               status: "CANCELLED" as const,
-              lastError: "Pengiriman email dinonaktifkan",
+              lastError: reason,
               completedAt: new Date(),
             }
           : {}),
@@ -30,23 +63,82 @@ export async function queueEmail(
     skipDuplicates: true,
   });
 }
-const transport = () =>
+
+let smtpTransport: ReturnType<typeof nodemailer.createTransport> | undefined;
+// SMTP (e.g. Brevo) is at-least-once delivery: a crash after the server accepts a message can cause a retry.
+export const smtpSender: EmailSender = async ({
+  id,
+  idempotencyKey: _idempotencyKey,
+  ...email
+}) => {
+  smtpTransport ??= nodemailer.createTransport({
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    secure: env.SMTP_SECURE,
+    requireTLS: !env.SMTP_SECURE,
+    auth: env.SMTP_USER
+      ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD }
+      : undefined,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
+  });
+  try {
+    await smtpTransport.sendMail({
+      from: env.EMAIL_FROM,
+      replyTo: env.EMAIL_REPLY_TO,
+      ...email,
+      messageId: `<${id}@dana-keluarga.local>`,
+    });
+  } catch (error) {
+    const { code, responseCode } = error as {
+      code?: string;
+      responseCode?: number;
+    };
+    // EAUTH and 5xx replies (rejected sender/recipient) fail the same way on every retry.
+    if (code === "EAUTH" || (responseCode ?? 0) >= 500)
+      throw new EmailDeliveryError(
+        `SMTP menolak pengiriman (${code === "EAUTH" ? "autentikasi gagal" : `kode ${responseCode}`}). Periksa SMTP_USER/SMTP_PASSWORD dan pastikan EMAIL_FROM terverifikasi.`,
+        true,
+      );
+    throw error;
+  }
+};
+
+let resendClient: Resend | undefined;
+export const resendSender: EmailSender = async ({
+  id: _id,
+  idempotencyKey,
+  ...email
+}) => {
+  resendClient ??= new Resend(env.RESEND_API_KEY);
+  // The SDK reports API failures as { error } instead of throwing. The idempotency key makes
+  // a retry after a crash (provider accepted, status not yet saved) return the original email.
+  const { error } = await resendClient.emails.send(
+    { from: env.EMAIL_FROM, replyTo: env.EMAIL_REPLY_TO, ...email },
+    { idempotencyKey },
+  );
+  if (!error) return;
+  const status = error.statusCode ?? 0;
+  // 4xx means the request itself is wrong (API key, sender domain, recipient); retrying will not help.
+  // 409 (concurrent idempotent request) and 429 (rate limit/quota) are transient.
+  throw new EmailDeliveryError(
+    `Resend ${error.name}: ${error.message}`.slice(0, 300),
+    status >= 400 && status < 500 && status !== 409 && status !== 429,
+  );
+};
+
+export const defaultSender = (): EmailSender | null =>
   env.EMAIL_MODE === "smtp"
-    ? nodemailer.createTransport({
-        host: env.SMTP_HOST,
-        port: env.SMTP_PORT,
-        secure: env.SMTP_SECURE,
-        requireTLS: !env.SMTP_SECURE,
-        auth: env.SMTP_USER
-          ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD }
-          : undefined,
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 20000,
-      })
-    : nodemailer.createTransport({ jsonTransport: true });
-// SMTP is at-least-once delivery: a crash after SMTP accepts a message can cause a retry.
-export async function processEmails(now = new Date(), sender = transport()) {
+    ? smtpSender
+    : env.EMAIL_MODE === "resend"
+      ? resendSender
+      : null;
+
+export async function processEmails(
+  now = new Date(),
+  sender: EmailSender | null = defaultSender(),
+) {
   if (env.EMAIL_MODE === "disabled") return;
   await prisma.emailMessage.updateMany({
     where: {
@@ -119,33 +211,40 @@ export async function processEmails(now = new Date(), sender = transport()) {
         );
         body = `Pengingat cicilan ke-${current.installmentNumber}: ${formatMoney(current.remainingAmount)}, jatuh tempo ${wibDay(current.dueDate)}. Total pinjaman ${formatMoney(current.loan.principalAmount)}, sudah dibayar ${formatMoney(current.loan.principalAmount.sub(outstanding))}, sisa tagihan ${formatMoney(outstanding)}. Lihat rincian: ${env.FRONTEND_URL.replace(/\/$/, "")}/?installment=${current.id}`;
       }
-      await sender.sendMail({
-        from: env.SMTP_FROM,
+      // Simulation has no sender: the email is rendered and recorded but never leaves the server.
+      await sender?.({
+        id: message.id,
         to: user.email,
         subject: message.subject,
-        text: body,
-        messageId: `<${message.id}@dana-keluarga.local>`,
+        ...renderEmail(message.subject, body),
+        idempotencyKey: message.eventKey,
       });
       await prisma.emailMessage.update({
         where: { id: message.id },
         data: {
-          status: env.EMAIL_MODE === "smtp" ? "SENT" : "SIMULATED",
+          status: sender ? "SENT" : "SIMULATED",
           completedAt: new Date(),
           lockedAt: null,
           lastError: null,
         },
       });
-    } catch {
+    } catch (error) {
+      const known = error instanceof EmailDeliveryError;
       await prisma.emailMessage.update({
         where: { id: message.id },
         data: {
-          status: message.attempts + 1 >= 5 ? "FAILED" : "QUEUED",
+          status:
+            (known && error.permanent) || message.attempts + 1 >= 5
+              ? "FAILED"
+              : "QUEUED",
           nextAttemptAt: new Date(
             Date.now() + Math.min(3600000, 30000 * 2 ** message.attempts),
           ),
           lockedAt: null,
-          lastError:
-            "Email belum terkirim. Periksa koneksi dan konfigurasi SMTP.",
+          // Raw transport errors may echo credentials or hosts; only our own messages are stored.
+          lastError: known
+            ? error.message
+            : "Email belum terkirim. Periksa koneksi dan konfigurasi penyedia email.",
         },
       });
     }

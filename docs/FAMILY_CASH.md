@@ -20,7 +20,7 @@ Implementasi baru memakai kembali `Family`, `FamilyMember`, `LedgerEntry`, `Loan
 | `backend/src/modules/cash/cash.routes.ts`           | API kas dan validasi input                                             |
 | `backend/src/modules/approvals/approval.service.ts` | Snapshot hirarki, cadangan, penolakan, pencairan gabungan              |
 | `backend/src/modules/payments/*`                    | Pembayaran sebagian/penuh dan posting pengembalian                     |
-| `backend/src/modules/email/email.service.ts`        | Outbox SMTP, claim, retry, simulasi                                    |
+| `backend/src/modules/email/email.service.ts`        | Outbox email, adapter SMTP/Resend, claim, retry, simulasi              |
 | `backend/src/modules/notifications/*`               | Event inbox/WA/email dan pengingat                                     |
 | `frontend/src/features/cash/FamilyCash.tsx`         | Dashboard kas, setoran, preview dan konfirmasi ambil dana              |
 | `frontend/src/components/CurrencyInput.tsx`         | Input nominal reusable dengan validasi dan caret                       |
@@ -81,17 +81,25 @@ Atur variabel pada `.env` lokal/server, jangan kirim password melalui chat:
 
 ```dotenv
 EMAIL_MODE=simulation
-SMTP_HOST=smtp.penyedia-anda.example
+EMAIL_FROM="Dana Keluarga <notifikasi@domain-anda.example>"
+EMAIL_REPLY_TO=
+# EMAIL_MODE=smtp (contoh Brevo)
+SMTP_HOST=smtp-relay.brevo.com
 SMTP_PORT=587
 SMTP_SECURE=false
-SMTP_USER=akun-smtp
+SMTP_USER=login-smtp-brevo
 SMTP_PASSWORD=isi-di-server
-SMTP_FROM="Dana Keluarga <notifikasi@domain-anda.example>"
+# EMAIL_MODE=resend
+RESEND_API_KEY=isi-di-server
 ```
 
 - `disabled` (default): event email tersimpan CANCELLED, tidak dikirim belakangan ketika mode berubah.
 - `simulation`: transport JSON Nodemailer, status SIMULATED; tidak keluar ke internet.
-- `smtp`: SMTP sebenarnya; port 587 memakai STARTTLS wajib, port 465 gunakan SMTP_SECURE=true. Alamat penerima diambil ulang dari akun aktif dan keanggotaan keluarga pada database.
+- `smtp`: SMTP sebenarnya (mis. Brevo); port 587 memakai STARTTLS wajib, port 465 gunakan SMTP_SECURE=true. Alamat penerima diambil ulang dari akun aktif dan keanggotaan keluarga pada database.
+- `resend`: API Resend; `eventKey` dikirim sebagai idempotency key sehingga retry setelah crash tidak mengirim email ganda. `EMAIL_FROM` harus memakai domain yang sudah terverifikasi di Resend.
+- Pindah penyedia cukup dengan mengubah `EMAIL_MODE` beserta kredensialnya lalu restart API; email yang masih antre dikirim lewat penyedia baru. `SMTP_FROM` lama tetap dibaca bila `EMAIL_FROM` kosong.
+- Email hanya dikirim untuk tagihan, pengajuan pinjaman, dan keputusan approval. Setoran/tarikan kas tetap tercatat di inbox aplikasi dengan status email `CANCELLED`.
+- Penolakan permanen (autentikasi SMTP gagal, balasan SMTP 5xx, error Resend 4xx selain 409/429) langsung `FAILED` tanpa retry; penyebabnya tersimpan di riwayat tanpa credential.
 - Persetujuan membutuhkan email akun approver, bukan alamat yang diketik dalam form transaksi. Email tugas menyertakan pemohon, tanggal, tujuan, total, tarikan, pinjaman dan tautan approval.
 - Worker memakai claim atomik, lease 5 menit, retry exponential hingga 5 percobaan; error tidak menampilkan credential. SENT berarti SMTP menerima email, bukan jaminan email sudah dibaca/masuk inbox. Jika proses mati setelah SMTP menerima, retry dapat menyebabkan email duplikat; Message-ID stabil disediakan. Tidak menjanjikan exactly-once delivery eksternal.
 - Pengingat H−3/hari H setelah jam WIB konfigurasi berjalan melalui email. Email tagihan yang sudah lunas dibatalkan sebelum pengiriman.
@@ -125,4 +133,4 @@ Migration `20260918170000_email_only` telah diterapkan. Tabel pesan serta kolom 
 
 Deduplikasi event sekarang menggunakan `EmailMessage.eventKey`, dan inbox aplikasi dibuat hanya saat event baru dimasukkan. Pencatatan kas tidak bergantung pada keberhasilan SMTP. Menu Pengaturan menampilkan email akun, mode pengiriman, dan riwayat email sesuai scope akses pengguna.
 
-Konfigurasi saat pemeriksaan: `EMAIL_MODE=disabled`, SMTP belum diisi. Untuk email nyata, atur `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, lalu `EMAIL_MODE=smtp` dan restart API. Jangan memasukkan password SMTP ke repository atau chat. Tidak ada email nyata yang dikirim selama pengujian.
+Konfigurasi saat pemeriksaan: `EMAIL_MODE=disabled`, SMTP belum diisi. Untuk email nyata, atur `EMAIL_FROM` dan kredensial penyedia (`SMTP_*` untuk `smtp`, `RESEND_API_KEY` untuk `resend`), lalu ubah `EMAIL_MODE` dan restart API. Jangan memasukkan password SMTP ke repository atau chat. Tidak ada email nyata yang dikirim selama pengujian.
