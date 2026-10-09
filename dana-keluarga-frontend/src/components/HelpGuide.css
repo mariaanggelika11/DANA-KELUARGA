@@ -98,3 +98,37 @@
   font-size: 13px;
   line-height: 1.7;
 }
+.guide-support {
+  margin: 22px 0;
+}
+.guide-support > p {
+  color: #6a606e;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.guide-support form {
+  display: grid;
+  gap: 12px;
+}
+.guide-support label {
+  font-weight: 600;
+}
+.guide-support textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 140px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  background: #fffdf9;
+  color: inherit;
+}
+.guide-support small {
+  color: #6a606e;
+  line-height: 1.6;
+}
+.guide-support button {
+  justify-self: start;
+}

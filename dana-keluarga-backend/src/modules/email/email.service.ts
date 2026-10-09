@@ -10,6 +10,7 @@ import { renderEmail } from "./email.templates";
 export type OutgoingEmail = {
   id: string;
   to: string;
+  replyTo?: string;
   subject: string;
   html: string;
   text: string;

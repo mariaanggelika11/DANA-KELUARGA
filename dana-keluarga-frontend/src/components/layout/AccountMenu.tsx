@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  BookOpen,
   ChevronDown,
   KeyRound,
   LogOut,
@@ -110,6 +111,16 @@ export function AccountMenu({ user, onNavigate, onLogout }: Props) {
           >
             <Settings size={17} aria-hidden="true" />
             Pengaturan
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onNavigate("Panduan");
+            }}
+          >
+            <BookOpen size={17} aria-hidden="true" />
+            Panduan
           </button>
           <button
             type="button"

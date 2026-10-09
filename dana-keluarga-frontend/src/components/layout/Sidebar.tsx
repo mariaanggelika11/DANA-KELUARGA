@@ -30,6 +30,7 @@ const mainItems = [
 const secondaryItems = [
   { label: "Notifikasi", icon: Bell },
   { label: "Pengaturan", icon: Settings },
+  { label: "Panduan", icon: BookOpen },
 ] as const;
 
 export function Sidebar({
@@ -117,6 +118,7 @@ export function Sidebar({
       <button
         type="button"
         className={`sidebar-help${active === "Panduan" ? " selected" : ""}`}
+        aria-current={active === "Panduan" ? "page" : undefined}
         onClick={() => onNavigate("Panduan")}
       >
         <BookOpen size={21} aria-hidden="true" />

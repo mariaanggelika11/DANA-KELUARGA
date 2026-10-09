@@ -161,7 +161,18 @@ export async function api<T>(
       path === "/auth/forgot-password" && response.status === 503
         ? recoveryMessages[payload?.error?.code]
         : undefined;
+    const supportMessages: Record<string, string> = {
+      SUPPORT_UNAVAILABLE:
+        "Pengiriman bantuan belum tersedia. Silakan coba lagi nanti.",
+      SUPPORT_DELIVERY_FAILED:
+        "Pesan bantuan belum berhasil dikirim. Silakan coba lagi nanti.",
+    };
+    const supportMessage =
+      path === "/support" && response.status === 503
+        ? supportMessages[payload?.error?.code]
+        : undefined;
     const safeMessage =
+      supportMessage ??
       recoveryMessage ??
       loginMessage ??
       (response.status === 401 ||

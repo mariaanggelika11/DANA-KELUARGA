@@ -1,5 +1,6 @@
 import { BookOpen, ChevronRight } from "lucide-react";
 import { Feedback } from "./Feedback";
+import { SupportForm } from "./SupportForm";
 import { roleLabel, type AppPage, type SessionUser } from "../types/navigation";
 import "./HelpGuide.css";
 
@@ -84,7 +85,7 @@ const guides: Guide[] = [
 ];
 const managerGuide: Guide = {
   id: "management",
-  title: "Panduan admin dan bendahara",
+  title: "Menjalankan tugas persetujuan dan pencairan",
   description:
     "Pisahkan keputusan pengajuan, transfer dana, dan pencatatan pencairan.",
   steps: [
@@ -96,6 +97,21 @@ const managerGuide: Guide = {
     "Admin keluarga dapat menambahkan anggota; bendahara menangani dana sesuai hak aksesnya.",
   ],
   target: "Persetujuan",
+};
+
+const treasurerGuide: Guide = {
+  id: "treasurer",
+  title: "Pengelola dana: memeriksa uang masuk",
+  description: "Konfirmasi laporan berdasarkan mutasi rekening keluarga aktif.",
+  steps: [
+    "Pastikan keluarga yang dipilih sesuai dengan rekening yang akan diperiksa. Notifikasi laporan dikirim kepada pengelola dana aktif pada keluarga tersebut.",
+    "Buka Kas → Laporan setoran untuk melihat setoran yang menunggu pemeriksaan. Cocokkan nominal dan rekening tujuan dengan uang masuk di mutasi bank.",
+    "Konfirmasi hanya setelah uang benar-benar masuk. Konfirmasi menambah kontribusi penyetor dan saldo kas. Jika laporan tidak sesuai, tolak dengan alasan agar penyetor dapat memperbaikinya.",
+    "Anda tidak dapat memeriksa setoran sendiri. Pengelola dana lain pada keluarga yang sama harus memeriksanya.",
+    "Untuk laporan cicilan, buka Cicilan dan rincian pembayaran. Cocokkan transfer dengan mutasi rekening sebelum memilih Dana sudah masuk atau menolak dengan alasan.",
+    "Email atau notifikasi laporan berarti menunggu pemeriksaan; laporan tersebut belum membuktikan uang masuk dan belum mengubah saldo.",
+  ],
+  target: "Kas",
 };
 
 export function HelpGuide({
@@ -143,6 +159,7 @@ export function HelpGuide({
           ),
         ]
       : [
+          ...(user.familyRole === "TREASURER" ? [treasurerGuide] : []),
           ...guides,
           managerGuide,
           ...(user.familyRole === "ADMIN"
@@ -201,6 +218,7 @@ export function HelpGuide({
           </details>
         ))}
       </div>
+      <SupportForm key={`${user.id}:${user.familyId ?? "global"}`} />
       <section className="panel guide-troubleshooting">
         <h2>Jika mengalami kendala</h2>
         <dl>

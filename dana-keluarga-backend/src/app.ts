@@ -4,6 +4,7 @@ import {
 } from "./middleware/error-handler";
 import { cashRouter } from "./modules/cash/cash.routes";
 import express from "express";
+import { supportRouter } from "./modules/support/support.routes";
 import {
   approvalPolicyRouter,
   approvalRouter,
@@ -53,6 +54,7 @@ app.use("/api/v1/payments", paymentRouter);
 app.use("/api/v1/ledger", ledgerRouter);
 app.use("/api/v1/cash", cashRouter);
 app.use("/api/v1/notifications", notificationRouter);
+app.use("/api/v1/support", supportRouter);
 app.get("/health", (_req, res) =>
   res.json({ success: true, data: { status: "ok" } }),
 );

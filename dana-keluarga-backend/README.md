@@ -111,3 +111,9 @@ Koreksi ditolak jika kontribusi sudah ditarik atau dicadangkan, atau kas tidak c
 Hak Maker dimuat ulang setiap 15 detik saat halaman Pinjaman/Kas terlihat dan ketika kembali fokus, sehingga perubahan hirarki segera memperbarui tombol pengajuan.
 
 Regresi API/database tercakup dalam `scripts/verify-access-races.ts` dan `scripts/verify-gap-fixes.ts`, dijalankan oleh `npm run test:cash:integration`. Untuk browser nyata ke API/database sementara, jalankan frontend lokal lalu atur `PLAYWRIGHT_MODULE` ke modul Playwright yang tersedia dan jalankan perintah integrasi yang sama; runner menambahkan `scripts/verify-browser-gap-fixes.ts`. Semua email pada pengujian tetap simulation dan schema uji selalu dihapus.
+
+## Bantuan ke Super Admin
+
+Pengguna yang login dapat membuka Panduan → Tanya Super Admin dan mengisi kendala 10–5.000 karakter. `POST /api/v1/support` menerima hanya `{ "message": "..." }`; penerima tetap `aglkamaria086@gmail.com` dan subjek `[Butuh Bantuan] Kendala pengguna Dana Keluarga`. Identitas, peran, dan keluarga aktif diambil dari akun serta sesi pengguna di backend, bukan dari isian formulir. Email dikirim langsung melalui penyedia SMTP/Resend yang sudah dikonfigurasi, dengan Reply-To email akun pengguna. Isi kendala tidak dimasukkan ke inbox keluarga.
+
+Batas pengiriman adalah 5 permintaan per akun dalam 15 menit. Mode disabled/simulation menghasilkan `503 SUPPORT_UNAVAILABLE`; kegagalan penyedia menghasilkan `503 SUPPORT_DELIVERY_FAILED`. Respons sukses berarti penyedia menerima pesan, bukan jaminan masuk inbox. Tidak diperlukan migration database.
