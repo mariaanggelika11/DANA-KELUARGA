@@ -248,10 +248,10 @@ export function HierarchySetup({
         data?.family.id === familyId && (
           <>
             <Feedback tone="info" title="Urutan berlaku untuk pengajuan baru">
-              Contoh: Maker → Dani (approval 1) → Danang (approval 2) →
-              Releaser. Setiap approver harus menyetujui sebelum tahap
-              berikutnya. Super Admin hanya mengatur hirarki; tidak mendapat hak
-              approval atau pencairan.
+              Urutan: Maker → Approver pertama → Approver kedua → Releaser.
+              Setiap approver harus menyetujui sebelum tahap berikutnya. Super
+              Admin hanya mengatur hirarki; tidak mendapat hak approval atau
+              pencairan.
             </Feedback>
             <ValidatedForm className="panel hierarchy-editor" onSubmit={save}>
               <div className="approval-section-heading">

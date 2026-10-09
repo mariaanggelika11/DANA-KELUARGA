@@ -1,5 +1,6 @@
+import { authorizeFamily } from "../cash/family-access.service";
 import { requestFunds } from "../cash/cash.service";
-import { fundRequestSchema } from "../cash/cash.routes";
+import { fundRequestSchema } from "../cash/cash.schemas";
 import { Router } from "express";
 import { prisma } from "../../config/prisma";
 import { actOnRequest } from "../approvals/approval.service";
@@ -11,7 +12,7 @@ import { requireAuth, type AuthRequest } from "../../middleware/auth";
 import { installmentPaymentStatus } from "../payments/payment.rules";
 
 export const loanRouter = Router();
-loanRouter.use(requireAuth, (req: AuthRequest, res, next) => {
+loanRouter.use(requireAuth, (req: AuthRequest, _res, next) => {
   requireOperationalActor(req.auth!, req.auth!.familyId ?? "");
   if (!req.auth!.familyId)
     throw new WorkflowError(
@@ -23,50 +24,51 @@ loanRouter.use(requireAuth, (req: AuthRequest, res, next) => {
 });
 
 loanRouter.get("/", async (req: AuthRequest, res) => {
-  const canViewAll = ["ADMIN", "TREASURER"].includes(
-    req.auth!.familyRole ?? "",
-  );
-  const loans = await prisma.loan.findMany({
-    where: {
-      familyId: req.auth!.familyId,
-      ...(canViewAll ? {} : { borrowerId: req.auth!.sub }),
-    },
-    include: {
-      borrower: { select: { id: true, name: true, phone: true } },
-      approvalRequest: {
-        select: {
-          id: true,
-          status: true,
-          currentStep: true,
-          steps: {
-            orderBy: { sequence: "asc" },
-            select: {
-              sequence: true,
-              permission: true,
-              status: true,
-              assignedUser: { select: { id: true, name: true } },
+  const loans = await prisma.$transaction(async (tx) => {
+    const current = await authorizeFamily(tx, req.auth!);
+    const canViewAll = ["ADMIN", "TREASURER"].includes(current.familyRole);
+    return tx.loan.findMany({
+      where: {
+        familyId: req.auth!.familyId,
+        ...(canViewAll ? {} : { borrowerId: req.auth!.sub }),
+      },
+      include: {
+        borrower: { select: { id: true, name: true, phone: true } },
+        approvalRequest: {
+          select: {
+            id: true,
+            status: true,
+            currentStep: true,
+            steps: {
+              orderBy: { sequence: "asc" },
+              select: {
+                sequence: true,
+                permission: true,
+                status: true,
+                assignedUser: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+        approvedBy: { select: { id: true, name: true } },
+        rejectedBy: { select: { id: true, name: true } },
+        installments: {
+          orderBy: { installmentNumber: "asc" },
+          include: {
+            payments: {
+              where: {
+                provider: "MANUAL",
+                status: "PENDING",
+                bankAccountId: { not: null },
+              },
+              select: { provider: true, status: true, bankAccountId: true },
+              take: 1,
             },
           },
         },
       },
-      approvedBy: { select: { id: true, name: true } },
-      rejectedBy: { select: { id: true, name: true } },
-      installments: {
-        orderBy: { installmentNumber: "asc" },
-        include: {
-          payments: {
-            where: {
-              provider: "MANUAL",
-              status: "PENDING",
-              bankAccountId: { not: null },
-            },
-            select: { provider: true, status: true, bankAccountId: true },
-            take: 1,
-          },
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: "desc" },
+    });
   });
   return res.json({
     success: true,

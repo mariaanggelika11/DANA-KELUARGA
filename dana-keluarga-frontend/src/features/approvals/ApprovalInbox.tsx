@@ -345,7 +345,7 @@ export function ApprovalInbox({
                       Setujui tahap ini
                     </button>
                     <button
-                      className="secondary-button"
+                      className="danger-button"
                       disabled={busy}
                       onClick={() => act("reject")}
                     >

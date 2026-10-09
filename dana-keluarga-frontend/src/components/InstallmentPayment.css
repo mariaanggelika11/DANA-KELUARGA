@@ -11,16 +11,6 @@
   font-size: 14px;
   overflow-wrap: anywhere;
 }
-.installment-payment .secondary-button {
-  min-height: 36px;
-  padding: 8px 12px;
-  font-size: 12px;
-}
-.installment-payment .primary {
-  min-height: 40px;
-  padding: 10px 14px;
-  font-size: 13px;
-}
 .installment-payment .payment-overview,
 .installment-payment .payment-account-details,
 .payment-amounts {
@@ -207,11 +197,5 @@
   }
   .payment-report-action button {
     width: 100%;
-  }
-}
-@media (pointer: coarse) {
-  .installment-payment .primary,
-  .installment-payment .secondary-button {
-    min-height: 44px;
   }
 }

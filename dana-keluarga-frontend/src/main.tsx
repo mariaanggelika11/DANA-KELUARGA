@@ -6,6 +6,8 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ConfirmationProvider } from "./components/ConfirmationProvider";
 import "./components/Feedback.css";
 import "./components/DesignSystem.css";
+import "./components/Buttons.css";
+import "./features/auth/Auth.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

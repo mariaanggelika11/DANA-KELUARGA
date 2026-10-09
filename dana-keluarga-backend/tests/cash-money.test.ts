@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { calculateFundRequest, validateRequestIntent } from "../src/modules/cash/cash.rules";
+import {
+  calculateFundRequest,
+  validateRequestIntent,
+} from "../src/modules/cash/cash.rules";
 import { amountSchema, formatMoney, splitAmount } from "../src/utils/money";
 describe("authoritative cash splitting", () => {
   it.each([
@@ -44,12 +47,24 @@ describe("authoritative cash splitting", () => {
 
 describe("explicit transaction intent", () => {
   it("never turns a contribution withdrawal into a loan", () => {
-    expect(() => validateRequestIntent("WITHDRAWAL", calculateFundRequest(5000000n, 4000000n).loanAmount)).toThrow("Kontribusi tersedia tidak mencukupi");
-    expect(() => validateRequestIntent("WITHDRAWAL", calculateFundRequest(1n, 0n).loanAmount)).toThrow();
+    expect(() =>
+      validateRequestIntent(
+        "WITHDRAWAL",
+        calculateFundRequest(5000000n, 4000000n).loanAmount,
+      ),
+    ).toThrow("Kontribusi tersedia tidak mencukupi");
+    expect(() =>
+      validateRequestIntent(
+        "WITHDRAWAL",
+        calculateFundRequest(1n, 0n).loanAmount,
+      ),
+    ).toThrow();
     expect(() => validateRequestIntent("WITHDRAWAL", 0n)).not.toThrow();
   });
   it("does not create zero-value loans when contributions cover the request", () => {
-    expect(() => validateRequestIntent("LOAN", 0n)).toThrow("Kontribusi Anda mencukupi");
+    expect(() => validateRequestIntent("LOAN", 0n)).toThrow(
+      "Kontribusi Anda mencukupi",
+    );
     expect(() => validateRequestIntent("LOAN", 1000000n)).not.toThrow();
   });
 });

@@ -1,3 +1,5 @@
+import { Modal } from "./Modal";
+import { useBackgroundRevision } from "../hooks/useBackgroundRevision";
 import { LoadingState } from "./LoadingState";
 import { RefreshButton } from "./RefreshButton";
 import { useEffect, useRef, useState } from "react";
@@ -30,6 +32,9 @@ type Payment = {
   reviewNotes: string | null;
   reviewedBy: { name: string } | null;
   bankAccount: BankAccount | null;
+  reversedAt?: string | null;
+  reversalReason?: string | null;
+  reversedBy?: { name: string } | null;
 };
 type Detail = {
   id: string;
@@ -49,6 +54,8 @@ type Detail = {
   };
   payments: Payment[];
   bankAccount: BankAccount | null;
+  canReverse?: boolean;
+  reviewerAvailable?: boolean;
   canReport: boolean;
   canReview: boolean;
   requiresIndependentReviewer: boolean;
@@ -102,6 +109,9 @@ export function InstallmentPayment({
   const [notice, setNotice] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [correction, setCorrection] = useState<Payment | null>(null);
+  const [reason, setReason] = useState("");
+  const backgroundRevision = useBackgroundRevision(!busy, 10000);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const reportKey = useRef(crypto.randomUUID());
@@ -128,12 +138,10 @@ export function InstallmentPayment({
       }
     }
     void load();
-    const interval = window.setInterval(load, 10000);
     return () => {
       controller.abort();
-      window.clearInterval(interval);
     };
-  }, [id, refresh]);
+  }, [id, refresh, backgroundRevision]);
   const pending =
     Number(detail?.remainingAmount) > 0
       ? detail?.payments.find(
@@ -243,6 +251,39 @@ export function InstallmentPayment({
       setBusy(false);
     }
   }
+  async function reverse() {
+    if (busy || !correction || reason.trim().length < 5) return;
+    setBusy(true);
+    setError("");
+    try {
+      if (
+        !(await confirm({
+          title: "Koreksi pembayaran",
+          message: `Pencatatan ${money(correction.amount)} dibatalkan. Kas berkurang dan tagihan dibuka kembali. Ini koreksi catatan, bukan pengembalian uang melalui bank.`,
+          confirmLabel: "Koreksi pembayaran",
+          destructive: true,
+        }))
+      )
+        return;
+      const result = await api<{ message: string }>(
+        `/payments/${correction.id}/reverse`,
+        { method: "POST", body: JSON.stringify({ reason }) },
+      );
+      setCorrection(null);
+      setReason("");
+      setNotice(result.message);
+      setRefresh((value) => value + 1);
+      onSettled();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Pembayaran belum dapat dikoreksi.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <section
       className="panel workflow-panel installment-payment"
@@ -251,6 +292,47 @@ export function InstallmentPayment({
       <div className="panel-heading">
         <div>
           <h2>Pembayaran cicilan</h2>
+          {correction && (
+            <Modal
+              title="Koreksi pembayaran"
+              busy={busy}
+              onClose={() => setCorrection(null)}
+            >
+              {error && <Feedback tone="error">{error}</Feedback>}
+              <p>
+                Pembayaran {money(correction.amount)} akan dibatalkan
+                pencatatannya. Catatan lama dan alasan koreksi tetap tersimpan.
+                Kas berkurang dan cicilan kembali menjadi tagihan.
+              </p>
+              <label>
+                Alasan koreksi
+                <textarea
+                  rows={3}
+                  minLength={5}
+                  maxLength={500}
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  disabled={busy}
+                />
+              </label>
+              <div className="dialog-actions">
+                <button
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => setCorrection(null)}
+                >
+                  Batal
+                </button>
+                <button
+                  className="danger-button"
+                  disabled={busy || reason.trim().length < 5}
+                  onClick={() => void reverse()}
+                >
+                  Koreksi pembayaran
+                </button>
+              </div>
+            </Modal>
+          )}
           {detail && (
             <p className="payment-subtitle">
               {detail.loan.borrower.name} · {detail.loan.purpose}
@@ -319,6 +401,15 @@ export function InstallmentPayment({
               <dd>{money(detail.remainingAmount)}</dd>
             </div>
           </dl>
+          {detail.isBorrower &&
+            detail.reviewerAvailable === false &&
+            Number(detail.remainingAmount) > 0 &&
+            !pending && (
+              <Feedback tone="warning">
+                Belum ada pengelola dana lain untuk memeriksa pembayaran Anda.
+                Hubungi Admin sebelum transfer atau melaporkan pembayaran.
+              </Feedback>
+            )}
           {detail.requiresIndependentReviewer && (
             <Feedback tone="info">
               Pembayaran pinjaman Anda harus diperiksa oleh pengelola dana lain
@@ -430,7 +521,7 @@ export function InstallmentPayment({
                   Dana sudah masuk
                 </button>
                 <button
-                  className="secondary-button"
+                  className="danger-button"
                   disabled={busy || reviewNotes.trim().length < 5}
                   onClick={() => void review("reject")}
                 >
@@ -471,7 +562,9 @@ export function InstallmentPayment({
                     className={`status ${payment.provider === "MANUAL" && payment.bankAccount ? payment.status.toLowerCase() : "cancelled"}`}
                   >
                     {payment.provider === "MANUAL" && payment.bankAccount
-                      ? (statuses[payment.status] ?? payment.status)
+                      ? payment.reversedAt
+                        ? "Dikoreksi"
+                        : (statuses[payment.status] ?? payment.status)
                       : "Catatan lama"}
                   </span>
                 </div>
@@ -502,6 +595,30 @@ export function InstallmentPayment({
                 {payment.reviewNotes && (
                   <p>Catatan pemeriksaan: {payment.reviewNotes}</p>
                 )}
+                {payment.reversedAt && (
+                  <p>
+                    Dikoreksi {payment.reversedBy?.name ?? "pengelola dana"} ·{" "}
+                    {date(payment.reversedAt)} WIB. Alasan:{" "}
+                    {payment.reversalReason}
+                  </p>
+                )}
+                {detail.canReverse &&
+                  payment.status === "SUCCESS" &&
+                  payment.provider === "MANUAL" &&
+                  payment.bankAccount &&
+                  !payment.reversedAt && (
+                    <button
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() => {
+                        setCorrection(payment);
+                        setReason("");
+                        setError("");
+                      }}
+                    >
+                      Koreksi pembayaran
+                    </button>
+                  )}
               </article>
             ))}
           </section>

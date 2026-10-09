@@ -1,44 +1,50 @@
-import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, LogOut, Settings, UserRound } from 'lucide-react'
+import { useEffect, useRef, useState } from "react";
+import {
+  ChevronDown,
+  KeyRound,
+  LogOut,
+  Settings,
+  UserRound,
+} from "lucide-react";
 import {
   roleLabel,
   type AppPage,
   type SessionUser,
-} from '../../types/navigation'
+} from "../../types/navigation";
 
 type Props = {
-  user: SessionUser
-  onNavigate: (page: AppPage) => void
-  onLogout: () => Promise<void>
-}
+  user: SessionUser;
+  onNavigate: (page: AppPage) => void;
+  onLogout: () => Promise<void>;
+};
 
 export function AccountMenu({ user, onNavigate, onLogout }: Props) {
-  const [open, setOpen] = useState(false)
-  const [loggingOut, setLoggingOut] = useState(false)
-  const container = useRef<HTMLDivElement>(null)
-  const trigger = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (!open) return
+    if (!open) return;
     function onPointer(event: PointerEvent) {
       if (
         event.target instanceof Node &&
         !container.current?.contains(event.target)
       )
-        setOpen(false)
+        setOpen(false);
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setOpen(false)
-        trigger.current?.focus()
+      if (event.key === "Escape") {
+        setOpen(false);
+        trigger.current?.focus();
       }
     }
-    document.addEventListener('pointerdown', onPointer)
-    document.addEventListener('keydown', onKey)
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener('pointerdown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
   return (
     <div
       className="top-account"
@@ -48,7 +54,7 @@ export function AccountMenu({ user, onNavigate, onLogout }: Props) {
           event.relatedTarget instanceof Node &&
           !event.currentTarget.contains(event.relatedTarget)
         )
-          setOpen(false)
+          setOpen(false);
       }}
     >
       <button
@@ -70,7 +76,7 @@ export function AccountMenu({ user, onNavigate, onLogout }: Props) {
         <ChevronDown
           size={16}
           aria-hidden="true"
-          className={open ? 'rotated' : ''}
+          className={open ? "rotated" : ""}
         />
       </button>
       {open && (
@@ -81,15 +87,25 @@ export function AccountMenu({ user, onNavigate, onLogout }: Props) {
               <strong>{user.name}</strong>
               <span>{user.email || user.phone}</span>
               <small>
-                {roleLabel(user)} · {user.familyName || 'Administrasi global'}
+                {roleLabel(user)} · {user.familyName || "Administrasi global"}
               </small>
             </div>
           </div>
           <button
             type="button"
             onClick={() => {
-              setOpen(false)
-              onNavigate('Pengaturan')
+              setOpen(false);
+              onNavigate("Ubah password");
+            }}
+          >
+            <KeyRound size={17} aria-hidden="true" />
+            Ubah password
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onNavigate("Pengaturan");
             }}
           >
             <Settings size={17} aria-hidden="true" />
@@ -100,21 +116,21 @@ export function AccountMenu({ user, onNavigate, onLogout }: Props) {
             className="account-logout"
             disabled={loggingOut}
             onClick={async () => {
-              if (loggingOut) return
-              setLoggingOut(true)
+              if (loggingOut) return;
+              setLoggingOut(true);
               try {
-                await onLogout()
+                await onLogout();
               } finally {
-                setLoggingOut(false)
-                setOpen(false)
+                setLoggingOut(false);
+                setOpen(false);
               }
             }}
           >
             <LogOut size={17} aria-hidden="true" />
-            {loggingOut ? 'Sedang keluar...' : 'Keluar dari akun'}
+            {loggingOut ? "Sedang keluar..." : "Keluar dari akun"}
           </button>
         </div>
       )}
     </div>
-  )
+  );
 }

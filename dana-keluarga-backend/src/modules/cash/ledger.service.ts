@@ -43,13 +43,16 @@ export async function memberContribution(
     where: {
       familyId,
       ownerUserId: userId,
-      type: { in: ["CONTRIBUTION", "WITHDRAWAL"] },
+      type: { in: ["CONTRIBUTION", "CONTRIBUTION_REVERSAL", "WITHDRAWAL"] },
     },
     _sum: { amount: true },
   });
-  const deposited =
+  const deposited = (
     rows.find((row) => row.type === "CONTRIBUTION")?._sum.amount ??
-    new Prisma.Decimal(0);
+    new Prisma.Decimal(0)
+  ).sub(
+    rows.find((row) => row.type === "CONTRIBUTION_REVERSAL")?._sum.amount ?? 0,
+  );
   const withdrawn =
     rows.find((row) => row.type === "WITHDRAWAL")?._sum.amount ??
     new Prisma.Decimal(0);

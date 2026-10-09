@@ -60,7 +60,7 @@ async function notify(
   });
   const loan = detail?.loan;
   const fund = loan?.fundRequest;
-  const body = `${message}${loan ? ` Pemohon: ${loan.borrower.name}. Total permintaan ${formatMoney(fund?.amount ?? loan.principalAmount)}; tarikan sendiri ${formatMoney(fund?.withdrawalAmount ?? 0)}; pinjaman ${formatMoney(loan.principalAmount)}. Tujuan: ${loan.purpose}. Tanggal: ${loan.requestedAt.toISOString()}.` : ""} ${env.FRONTEND_URL.replace(/\/$/, "")}/?view=approvals&request=${requestId}`;
+  const body = `${message}${loan ? ` Pemohon: ${loan.borrower.name}. Total permintaan ${formatMoney(fund?.amount ?? loan.principalAmount)}; tarikan sendiri ${formatMoney(fund?.withdrawalAmount ?? 0)}; pinjaman ${formatMoney(loan.principalAmount)}. Tujuan: ${loan.purpose}. Tanggal: ${loan.requestedAt.toISOString()}.` : ""} ${(env.PUBLIC_APP_URL ?? env.FRONTEND_URL).replace(/\/$/, "")}/?view=approvals&request=${requestId}`;
   await queueEmail(tx, {
     eventKey: `APPROVAL:${requestId}:${userId}:${detail?.currentStep}:${title}`,
     userId,

@@ -567,3 +567,12 @@ describe("consistent installment payment status", () => {
     ).toBe("PAID");
   });
 });
+
+it("blocks a new payment report without an independent reviewer", async () => {
+  db.familyMember.findMany.mockResolvedValue([]);
+  await expect(
+    reportTransfer(borrower, installment.loanId, installment.id, input),
+  ).rejects.toMatchObject({ code: "REVIEWER_UNAVAILABLE" });
+  expect(db.payment.create).not.toHaveBeenCalled();
+  expect(db.ledgerEntry.create).not.toHaveBeenCalled();
+});

@@ -4,6 +4,9 @@ import { rupiah, dateTime } from "../lib/format";
 import { Feedback } from "./Feedback";
 import { LoadingState } from "./LoadingState";
 import { Pagination } from "./Pagination";
+import { ArrowUpRight } from "lucide-react";
+import { RefreshButton } from "./RefreshButton";
+import "./Workflow.css";
 type Item = {
   id: string;
   installmentId: string;
@@ -17,9 +20,11 @@ type Item = {
 export function PendingTransfers({
   onOpen,
   revision,
+  backgroundRevision = 0,
 }: {
   onOpen: (id: string) => void;
   revision: number;
+  backgroundRevision?: number;
 }) {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<{ items: Item[]; total: number } | null>(
@@ -46,21 +51,20 @@ export function PendingTransfers({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [page, revision, refresh]);
+  }, [page, revision, refresh, backgroundRevision]);
   return (
     <section className="panel workflow-panel">
       <div className="panel-heading">
         <h2>Transfer menunggu pemeriksaan</h2>
-        <button
-          className="secondary-button"
-          disabled={loading}
+        <RefreshButton
+          loading={loading}
           onClick={() => {
             setLoading(true);
             setRefresh((value) => value + 1);
           }}
         >
           Perbarui
-        </button>
+        </RefreshButton>
       </div>
       <p>
         Periksa mutasi rekening sebelum mengonfirmasi. Laporan pembayaran
@@ -84,18 +88,21 @@ export function PendingTransfers({
                   Cicilan ke-{item.installment.installmentNumber} ·{" "}
                   {item.loan.purpose}
                 </p>
-                <small>
-                  Dilaporkan {dateTime.format(new Date(item.createdAt))} WIB
-                  {item.transferReference && (
-                    <> · Referensi {item.transferReference}</>
-                  )}
-                </small>
-                <button
-                  className="secondary-button"
-                  onClick={() => onOpen(item.installmentId)}
-                >
-                  Periksa transfer
-                </button>
+                <div className="pending-transfer-footer">
+                  <small>
+                    Dilaporkan {dateTime.format(new Date(item.createdAt))} WIB
+                    {item.transferReference && (
+                      <> · Referensi {item.transferReference}</>
+                    )}
+                  </small>
+                  <button
+                    className="primary"
+                    onClick={() => onOpen(item.installmentId)}
+                  >
+                    Periksa transfer
+                    <ArrowUpRight size={17} aria-hidden="true" />
+                  </button>
+                </div>
               </article>
             ))}
             <Pagination

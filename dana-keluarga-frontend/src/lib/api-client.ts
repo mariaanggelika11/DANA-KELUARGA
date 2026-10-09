@@ -54,10 +54,12 @@ async function refreshSession() {
   });
   return refreshing;
 }
-function expireSession() {
+export function expireSession(reason?: "PASSWORD_CHANGED" | "PASSWORD_RESET") {
   localStorage.removeItem("dana_access_token");
   localStorage.removeItem("dana_refresh_token");
-  window.dispatchEvent(new Event("dana:session-expired"));
+  window.dispatchEvent(
+    new CustomEvent("dana:session-expired", { detail: { reason } }),
+  );
 }
 export async function api<T>(
   path: string,

@@ -27,6 +27,7 @@ enum LedgerDirection {
 enum LedgerType {
   INITIAL_BALANCE
   CONTRIBUTION
+  CONTRIBUTION_REVERSAL
   WITHDRAWAL
   OTHER_INCOME
   EXPENSE
@@ -80,6 +81,7 @@ model User {
   email String? @unique
   phone String @unique
   passwordHash String
+  authVersion Int @default(0)
   systemRole SystemRole @default(USER)
   avatarUrl String?
   isActive Boolean @default(true)
@@ -97,12 +99,18 @@ model User {
   notifications Notification[]
   auditLogs AuditLog[]
   refreshTokens RefreshToken[]
+  authSessions AuthSession[]
+  passwordResetTokens PasswordResetToken[]
   createdApprovalPolicies ApprovalPolicy[] @relation("PolicyCreator")
   approvalAssignments ApprovalAssignment[]
   approvalRequests ApprovalRequest[] @relation("RequestMaker")
   approvalSteps ApprovalStep[]
   approvalActions ApprovalAction[]
   reviewedPayments Payment[] @relation("PaymentReviewer")
+  contributionReports ContributionReport[] @relation("ContributionReporter")
+  reviewedContributions ContributionReport[] @relation("ContributionReviewer")
+  reversedContributions ContributionReport[] @relation("ContributionReverser")
+  reversedPayments Payment[] @relation("PaymentReverser")
   createdBankAccounts FamilyBankAccount[] @relation("BankAccountCreator")
 }
 
@@ -122,6 +130,7 @@ model Family {
   ledgerEntries LedgerEntry[]
   goals FundGoal[]
   payments Payment[]
+  contributionReports ContributionReport[]
   bankAccounts FamilyBankAccount[]
   notifications Notification[]
   auditLogs AuditLog[]
@@ -239,6 +248,10 @@ model Payment {
   reviewedById String? @db.Uuid
   reviewedAt DateTime?
   reviewNotes String?
+  reversedAt DateTime?
+  reversalReason String?
+  reversedById String? @db.Uuid
+  reversedBy User? @relation("PaymentReverser", fields: [reversedById], references: [id], onDelete: Restrict)
   bankAccount FamilyBankAccount? @relation(fields: [bankAccountId, familyId], references: [id, familyId], onDelete: Restrict)
   reviewedBy User? @relation("PaymentReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
   createdAt DateTime @default(now())
@@ -264,6 +277,7 @@ model FamilyBankAccount {
   family Family @relation(fields: [familyId], references: [id])
   createdBy User @relation("BankAccountCreator", fields: [createdById], references: [id])
   payments Payment[]
+  contributionReports ContributionReport[]
   @@unique([familyId, version])
   @@unique([id, familyId])
 }
@@ -317,12 +331,40 @@ model AuditLog {
 model RefreshToken {
   id String @id @default(uuid()) @db.Uuid
   userId String @db.Uuid
+  sessionId String @db.Uuid
   tokenHash String @unique
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime @default(now())
   user User @relation(fields: [userId], references: [id])
+  session AuthSession @relation(fields: [sessionId], references: [id])
+  @@index([sessionId])
   @@index([userId, revokedAt])
+}
+
+// A session survives refresh rotation, but logout revokes all of its access tokens.
+model AuthSession {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id])
+  refreshTokens RefreshToken[]
+  @@index([userId, revokedAt])
+}
+
+// Only a digest is stored; recovery links are never saved in financial/email logs.
+model PasswordResetToken {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  tokenHash String @unique
+  authVersion Int
+  expiresAt DateTime
+  usedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id])
+  @@index([userId, createdAt])
 }
 
 enum WorkflowPermission {
@@ -500,4 +542,37 @@ model EmailMessage {
   user User @relation(fields: [userId], references: [id])
   family Family @relation(fields: [familyId], references: [id])
   @@index([status, nextAttemptAt])
+}
+
+
+enum ContributionStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  REVERSED
+}
+model ContributionReport {
+  id String @id @default(uuid()) @db.Uuid
+  familyId String @db.Uuid
+  userId String @db.Uuid
+  amount Decimal @db.Decimal(18, 2)
+  purpose String
+  idempotencyKey String
+  status ContributionStatus @default(PENDING)
+  bankAccountId String @db.Uuid
+  reviewedById String? @db.Uuid
+  reviewedAt DateTime?
+  reviewNotes String?
+  reversedById String? @db.Uuid
+  reversedAt DateTime?
+  reversalReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  family Family @relation(fields: [familyId], references: [id], onDelete: Restrict)
+  user User @relation("ContributionReporter", fields: [userId], references: [id], onDelete: Restrict)
+  reviewedBy User? @relation("ContributionReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  reversedBy User? @relation("ContributionReverser", fields: [reversedById], references: [id], onDelete: Restrict)
+  bankAccount FamilyBankAccount @relation(fields: [bankAccountId, familyId], references: [id, familyId], onDelete: Restrict)
+  @@unique([familyId, userId, idempotencyKey])
+  @@index([familyId, status, createdAt])
 }

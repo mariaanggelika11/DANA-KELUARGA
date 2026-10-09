@@ -1,91 +1,24 @@
-import { enqueue } from "../notifications/notification.service";
 import { formatMoney } from "../../utils/money";
+import { enqueue } from "../notifications/notification.service";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
-import {
-  WorkflowError,
-  requireOperationalActor,
-  type WorkflowActor,
-} from "../approvals/approval.rules";
+import { WorkflowError, type WorkflowActor } from "../approvals/approval.rules";
 import { createLoanApproval } from "../approvals/approval.service";
+import { authorizeFamily } from "./family-access.service";
 import { calculateFundRequest, validateRequestIntent } from "./cash.rules";
 import {
   cashBalance,
-  lockFamily,
   memberContribution,
   postLedger,
   reservedCash,
 } from "./ledger.service";
 
-type Tx = Prisma.TransactionClient;
-async function authorize(tx: Tx, actor: WorkflowActor) {
-  requireOperationalActor(actor, actor.familyId ?? "");
-  if (!actor.familyId)
-    throw new WorkflowError("FAMILY_REQUIRED", "Pilih keluarga aktif.", 403);
-  await lockFamily(tx, actor.familyId);
-  const member = await tx.familyMember.findUnique({
-    where: { familyId_userId: { familyId: actor.familyId, userId: actor.sub } },
-    include: { user: { select: { isActive: true } } },
-  });
-  if (member?.status !== "ACTIVE" || !member.user.isActive)
-    throw new WorkflowError(
-      "FORBIDDEN",
-      "Keanggotaan keluarga tidak aktif.",
-      403,
-    );
-  return actor.familyId;
-}
 const conflict = () =>
   new WorkflowError(
     "IDEMPOTENCY_CONFLICT",
     "Kode transaksi sudah digunakan untuk isian berbeda. Buka formulir baru.",
   );
-export async function contribute(
-  actor: WorkflowActor,
-  input: { amount: string; purpose: string; idempotencyKey: string },
-) {
-  return prisma.$transaction(async (tx) => {
-    const familyId = await authorize(tx, actor);
-    const previous = await tx.ledgerEntry.findUnique({
-      where: {
-        familyId_createdById_idempotencyKey: {
-          familyId,
-          createdById: actor.sub,
-          idempotencyKey: input.idempotencyKey,
-        },
-      },
-    });
-    if (previous) {
-      if (
-        previous.type !== "CONTRIBUTION" ||
-        !previous.amount.equals(input.amount) ||
-        previous.description !== input.purpose
-      )
-        throw conflict();
-      return previous;
-    }
-    const entry = await postLedger(tx, {
-      familyId,
-      ownerUserId: actor.sub,
-      createdById: actor.sub,
-      type: "CONTRIBUTION",
-      direction: "IN",
-      amount: input.amount,
-      description: input.purpose,
-      idempotencyKey: input.idempotencyKey,
-      referenceType: "CONTRIBUTION",
-    });
-    await enqueue(tx, {
-      eventKey: `CONTRIBUTION:${entry.id}`,
-      familyId,
-      userId: actor.sub,
-      kind: "CONTRIBUTION",
-      view: "cash",
-      body: `Setoran ${formatMoney(input.amount)} berhasil dicatat sebagai kontribusi Anda.`,
-    });
-    return entry;
-  });
-}
+export { contribute } from "./contribution.service";
 export async function requestFunds(
   actor: WorkflowActor,
   input: {
@@ -98,7 +31,8 @@ export async function requestFunds(
   expectedWithdrawal?: string,
 ) {
   return prisma.$transaction(async (tx) => {
-    const familyId = await authorize(tx, actor);
+    const current = await authorizeFamily(tx, actor);
+    const familyId = current.familyId;
     const previous = await tx.fundRequest.findUnique({
       where: {
         familyId_userId_idempotencyKey: {
@@ -210,44 +144,18 @@ export async function requestFunds(
 }
 export async function cashSummary(actor: WorkflowActor, page = 1) {
   return prisma.$transaction(async (tx) => {
-    const familyId = await authorize(tx, actor);
+    const current = await authorizeFamily(tx, actor);
+    const familyId = current.familyId;
     const balance = await cashBalance(tx, familyId);
     const reserved = await reservedCash(tx, familyId);
     const contribution = await memberContribution(tx, familyId, actor.sub);
-    const loans = await tx.loan.findMany({
-      where: { familyId, borrowerId: actor.sub, disbursedAt: { not: null } },
+    const familyLoans = await tx.loan.findMany({
+      where: { familyId, disbursedAt: { not: null } },
       include: { installments: true },
     });
     const sum = (values: Prisma.Decimal[]) =>
       values.reduce((a, b) => a.add(b), new Prisma.Decimal(0));
-    const canManage = ["ADMIN", "TREASURER"].includes(actor.familyRole ?? "");
-    const members = await tx.familyMember.findMany({
-      where: { familyId, ...(canManage ? {} : { userId: actor.sub }) },
-      select: { userId: true, user: { select: { name: true } } },
-    });
-    const contributions = await Promise.all(
-      members.map(async (member) => ({
-        userId: member.userId,
-        name: member.user.name,
-        ...(await memberContribution(tx, familyId, member.userId)),
-      })),
-    );
-    const requests = await tx.fundRequest.findMany({
-      where: { familyId, ...(canManage ? {} : { userId: actor.sub }) },
-      include: { user: { select: { name: true } } },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 20,
-      skip: (page - 1) * 20,
-    });
-    const requestsTotal = await tx.fundRequest.count({
-      where: { familyId, ...(canManage ? {} : { userId: actor.sub }) },
-    });
-    return {
-      requestsTotal,
-      balance,
-      reserved,
-      availableCash: balance.sub(reserved),
-      contribution,
+    const loanTotals = (loans: typeof familyLoans) => ({
       loanTotal: sum(loans.map((loan) => loan.principalAmount)),
       repaid: sum(
         loans.flatMap((loan) =>
@@ -259,8 +167,87 @@ export async function cashSummary(actor: WorkflowActor, page = 1) {
           loan.installments.map((item) => item.remainingAmount),
         ),
       ),
+    });
+    const familyLoanTotals = loanTotals(familyLoans);
+    const ownLoanTotals = loanTotals(
+      familyLoans.filter((loan) => loan.borrowerId === actor.sub),
+    );
+    const availableCash = balance.sub(reserved);
+    const withdrawable = (available: Prisma.Decimal) =>
+      Prisma.Decimal.max(0, Prisma.Decimal.min(available, availableCash));
+    const canManage = ["ADMIN", "TREASURER"].includes(current.familyRole ?? "");
+    const members = await tx.familyMember.findMany({
+      where: { familyId, ...(canManage ? {} : { userId: actor.sub }) },
+      select: { userId: true, user: { select: { name: true } } },
+    });
+    const contributions = await Promise.all(
+      members.map(async (member) => {
+        const contribution = await memberContribution(
+          tx,
+          familyId,
+          member.userId,
+        );
+        return {
+          userId: member.userId,
+          name: member.user.name,
+          ...contribution,
+          withdrawable: withdrawable(contribution.available),
+          ...loanTotals(
+            familyLoans.filter((loan) => loan.borrowerId === member.userId),
+          ),
+        };
+      }),
+    );
+    const requests = await tx.fundRequest.findMany({
+      where: { familyId, ...(canManage ? {} : { userId: actor.sub }) },
+      include: {
+        user: { select: { name: true } },
+        loan: {
+          select: {
+            disbursedAt: true,
+            paidOffAt: true,
+            installments: {
+              select: { paidAmount: true, remainingAmount: true },
+            },
+          },
+        },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 20,
+      skip: (page - 1) * 20,
+    });
+    const requestsTotal = await tx.fundRequest.count({
+      where: { familyId, ...(canManage ? {} : { userId: actor.sub }) },
+    });
+    return {
+      requestsTotal,
+      balance,
+      reserved,
+      availableCash,
+      contribution: {
+        ...contribution,
+        withdrawable: withdrawable(contribution.available),
+      },
+      ...ownLoanTotals,
+      familyLoanTotals,
       contributions,
-      requests,
+      requests: requests.map(({ loan, ...request }) => ({
+        ...request,
+        disbursedAt: loan?.disbursedAt ?? null,
+        paidOffAt: loan?.paidOffAt ?? null,
+        loanProgress: loan?.disbursedAt
+          ? {
+              repaid: sum(loan.installments.map((item) => item.paidAmount)),
+              outstanding: sum(
+                loan.installments.map((item) => item.remainingAmount),
+              ),
+              paidInstallments: loan.installments.filter((item) =>
+                item.remainingAmount.isZero(),
+              ).length,
+              totalInstallments: loan.installments.length,
+            }
+          : null,
+      })),
     };
   });
 }

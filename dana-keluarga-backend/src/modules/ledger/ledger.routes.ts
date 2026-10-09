@@ -1,3 +1,4 @@
+import { authorizeFamily } from "../cash/family-access.service";
 import { amountSchema } from "../../utils/money";
 import { postLedger } from "../cash/ledger.service";
 import { Router } from "express";
@@ -111,7 +112,7 @@ ledgerRouter.post("/", requireAuth, async (req: AuthRequest, res) => {
       },
     });
   const entry = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "Family" WHERE id = ${req.auth!.familyId}::uuid FOR UPDATE`;
+    await authorizeFamily(tx, req.auth!, ["ADMIN", "TREASURER"]);
     const existing = await tx.ledgerEntry.findUnique({
       where: {
         familyId_createdById_idempotencyKey: {

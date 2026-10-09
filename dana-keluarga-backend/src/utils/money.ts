@@ -33,4 +33,3 @@ export function splitAmount(total: bigint, parts: number): bigint[] {
     (_, index) => base + (BigInt(index) < remainder ? 1n : 0n),
   );
 }
-export const formatIDR = formatMoney;

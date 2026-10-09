@@ -1,34 +1,38 @@
-import { useEffect, useState } from 'react'
-import { api } from '../lib/api-client'
-import type { SessionUser } from '../types/navigation'
+import { useEffect, useState } from "react";
+import { api } from "../lib/api-client";
+import type { SessionUser } from "../types/navigation";
+import { useBackgroundRevision } from "./useBackgroundRevision";
 
-type Permissions = { configured: boolean; canCreateLoan: boolean }
+type Permissions = { configured: boolean; canCreateLoan: boolean };
 export function useLoanPermissions(user: SessionUser | null, visible: boolean) {
-  const [data, setData] = useState<Permissions | null>(null)
-  const [error, setError] = useState('')
+  const [data, setData] = useState<Permissions | null>(null);
+  const [error, setError] = useState("");
+  const revision = useBackgroundRevision(
+    visible && user?.systemRole === "USER",
+  );
   useEffect(() => {
-    if (!visible || user?.systemRole !== 'USER') return
-    const controller = new AbortController()
-    api<{ data: Permissions }>('/approvals/permissions', {
+    if (!visible || user?.systemRole !== "USER") return;
+    const controller = new AbortController();
+    api<{ data: Permissions }>("/approvals/permissions", {
       signal: controller.signal,
     })
       .then(({ data }) => {
         if (!controller.signal.aborted) {
-          setData(data)
-          setError('')
+          setData(data);
+          setError("");
         }
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted) {
-          setData(null)
+          setData(null);
           setError(
             err instanceof Error
               ? err.message
-              : 'Hak pengajuan belum dapat diperiksa',
-          )
+              : "Hak pengajuan belum dapat diperiksa",
+          );
         }
-      })
-    return () => controller.abort()
-  }, [user?.id, user?.familyId, user?.systemRole, visible])
-  return { data, error }
+      });
+    return () => controller.abort();
+  }, [user?.id, user?.familyId, user?.systemRole, visible, revision]);
+  return { data, error };
 }

@@ -9,6 +9,12 @@ import { ValidatedForm } from "../../components/ValidatedForm";
 import { useConfirmation } from "../../hooks/useConfirmation";
 
 export type FundIntent = "contributions" | "withdrawals" | "loan-requests";
+type Account = {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+};
 type Balance = { availableCash: string; contribution: { available: string } };
 const titles: Record<FundIntent, string> = {
   contributions: "Setor dana",
@@ -26,6 +32,7 @@ export function FundTransactionDialog({
   onSaved: (message: string) => void;
   onRequestLoan?: () => void;
 }) {
+  const [account, setAccount] = useState<Account | null>(null);
   const [balance, setBalance] = useState<Balance | null>(null);
   const [loadError, setLoadError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -50,8 +57,18 @@ export function FundTransactionDialog({
             err instanceof Error ? err.message : "Saldo belum dapat dimuat.",
           );
       });
+    if (intent === "contributions")
+      api<{ data: { account: Account | null } }>("/payments/bank-account", {
+        signal: controller.signal,
+      })
+        .then(({ data }) => {
+          if (!controller.signal.aborted) setAccount(data.account);
+        })
+        .catch((err: Error) => {
+          if (!controller.signal.aborted) setLoadError(err.message);
+        });
     return () => controller.abort();
-  }, [revision]);
+  }, [revision, intent]);
   const deposit = intent === "contributions";
   const requested = BigInt(amount || "0");
   const available = BigInt(balance?.contribution.available || "0");
@@ -64,6 +81,7 @@ export function FundTransactionDialog({
   const covered = intent === "loan-requests" && requested > 0n && loan === 0n;
   const blocked =
     !balance ||
+    (deposit && !account) ||
     insufficientCash ||
     excessWithdrawal ||
     (covered && !withdrawInstead);
@@ -76,14 +94,18 @@ export function FundTransactionDialog({
     try {
       const accepted = await confirm({
         title: deposit
-          ? "Konfirmasi pencatatan setoran"
+          ? "Laporkan setoran"
           : loan > 0n
             ? "Konfirmasi pengajuan dana"
             : "Konfirmasi penarikan kontribusi",
         message: deposit
-          ? `Catat setoran ${money(amount)} yang sudah Anda serahkan ke kas keluarga? Ini pencatatan, bukan transfer uang melalui aplikasi.`
+          ? `Laporkan setoran ${money(amount)} yang sudah ditransfer? Kas dan kontribusi bertambah setelah pengelola dana memeriksa uang masuk.`
           : `Total kebutuhan ${money(requested)}. Kontribusi yang digunakan ${money(own)}. Utang baru ${money(loan)}.${loan > 0n ? " Cicilan hanya dihitung dari utang baru. Dana dicadangkan sampai persetujuan dan pencairan selesai." : " Penarikan dicatat tanpa membuat utang baru. Ini pencatatan, bukan transfer uang melalui aplikasi."}`,
-        confirmLabel: loan > 0n ? "Kirim pengajuan" : "Lanjutkan",
+        confirmLabel: deposit
+          ? "Laporkan setoran"
+          : loan > 0n
+            ? "Kirim pengajuan"
+            : "Lanjutkan",
       });
       if (!accepted) return;
       const path = covered && withdrawInstead ? "withdrawals" : intent;
@@ -94,6 +116,7 @@ export function FundTransactionDialog({
         body: JSON.stringify({
           amount,
           purpose,
+          ...(deposit ? { bankAccountId: account?.id } : {}),
           expectedWithdrawal: own.toString(),
           tenorMonths: Number(tenor),
           idempotencyKey: key.current,
@@ -101,7 +124,7 @@ export function FundTransactionDialog({
       });
       onSaved(
         deposit
-          ? `Setoran ${money(amount)} berhasil dicatat.`
+          ? `Laporan setoran ${money(amount)} menunggu pemeriksaan pengelola dana. Kas belum berubah.`
           : BigInt(result.data.loanAmount || "0") > 0n
             ? `Pengajuan ${money(amount)} berhasil dikirim: kontribusi ${money(result.data.withdrawalAmount!)} dan pinjaman ${money(result.data.loanAmount!)}. Menunggu persetujuan dan pencairan.`
             : `Penarikan kontribusi ${money(amount)} berhasil dicatat tanpa utang baru.`,
@@ -139,6 +162,33 @@ export function FundTransactionDialog({
         <ValidatedForm onSubmit={submit}>
           {error && <Feedback tone="error">{error}</Feedback>}
           <fieldset disabled={busy} className="form-fields">
+            {deposit &&
+              (account ? (
+                <>
+                  <p>
+                    Transfer setoran ke rekening keluarga berikut, lalu laporkan
+                    nominal yang sudah ditransfer.
+                  </p>
+                  <dl className="workflow-details">
+                    <div>
+                      <dt>Bank tujuan</dt>
+                      <dd>{account.bankName}</dd>
+                    </div>
+                    <div>
+                      <dt>Nomor rekening</dt>
+                      <dd>{account.accountNumber}</dd>
+                    </div>
+                    <div>
+                      <dt>Atas nama</dt>
+                      <dd>{account.accountHolder}</dd>
+                    </div>
+                  </dl>
+                </>
+              ) : (
+                <Feedback tone="warning">
+                  Rekening keluarga belum tersedia. Hubungi pengelola dana.
+                </Feedback>
+              ))}
             {!deposit && (
               <dl className="workflow-details">
                 <div>
@@ -274,7 +324,7 @@ export function FundTransactionDialog({
               {busy
                 ? "Memproses..."
                 : deposit
-                  ? "Catat setoran"
+                  ? "Saya sudah transfer"
                   : intent === "withdrawals" || (covered && withdrawInstead)
                     ? "Tarik kontribusi"
                     : "Kirim pengajuan"}

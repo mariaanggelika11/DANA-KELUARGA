@@ -12,17 +12,11 @@ body {
     "Segoe UI",
     sans-serif;
 }
-.login-card label,
-.modal label,
 .app-dialog label,
 .approval-page label {
   font-weight: var(--font-label);
   font-size: 14px;
 }
-.login-card input,
-.modal input,
-.modal select,
-.modal textarea,
 .app-dialog input,
 .app-dialog select,
 .app-dialog textarea,
@@ -30,18 +24,6 @@ body {
 .approval-page select,
 .approval-page textarea {
   font-weight: var(--font-control);
-}
-.primary,
-.secondary-button,
-.danger-button {
-  font-weight: 500;
-  min-height: 44px;
-  padding: 11px 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  line-height: 1.4;
 }
 .feedback-content > strong,
 .member-identity strong,
@@ -88,7 +70,7 @@ body {
   display: block;
   margin-top: 18px;
 }
-.app-dialog input:not([type="checkbox"]),
+.app-dialog input:not([type="checkbox"]):not([role="combobox"]),
 .app-dialog textarea,
 .app-dialog select {
   width: 100%;
@@ -130,13 +112,6 @@ body {
   gap: 10px;
   margin-top: 24px;
 }
-.danger-button {
-  background: #a12d2d;
-  color: white;
-  padding: 11px 16px;
-  border-radius: 6px;
-  border: 1px solid #a12d2d;
-}
 .confirmation-dialog {
   max-width: 440px;
 }
@@ -170,10 +145,6 @@ body {
   margin-top: 4px;
   color: #6b626e;
 }
-.modal {
-  max-height: calc(100dvh - 32px);
-  overflow-y: auto;
-}
 @media (max-width: 600px) {
   .app-dialog {
     padding: 20px;
@@ -181,9 +152,6 @@ body {
   .dialog-actions > button {
     flex: 1;
   }
-  .modal input,
-  .modal select,
-  .modal textarea,
   .approval-page select,
   .approval-page textarea {
     font-size: 16px;
@@ -225,10 +193,6 @@ body {
 .workflow-details dd {
   overflow-wrap: anywhere;
 }
-.ledger-reference {
-  overflow-wrap: anywhere;
-}
-
 
 /* Thin, consistent focus indicators; composite inputs highlight their outer box. */
 input:focus-visible,
@@ -255,30 +219,17 @@ select:focus-visible {
   justify-content: center;
   gap: 8px;
 }
-.refresh-button > svg { flex-shrink: 0; }
+.refresh-button > svg {
+  flex-shrink: 0;
+}
 
 /* Keep action spacing shared across dialogs, forms, and compact toolbars. */
 .dialog-actions > button {
   margin: 0;
 }
-.primary > svg,
-.secondary-button > svg,
-.danger-button > svg {
-  flex-shrink: 0;
-}
 .loan-actions {
   flex-wrap: wrap;
   gap: 10px;
-}
-.loan-actions button {
-  min-height: 40px;
-  padding: 10px 14px;
-}
-.dialog-heading > .icon-button {
-  min-width: 40px;
-  min-height: 40px;
-  padding: 8px;
-  flex-shrink: 0;
 }
 
 /* Position trailing icons against the control itself, excluding label spacing. */

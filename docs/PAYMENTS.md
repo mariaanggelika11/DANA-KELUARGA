@@ -68,3 +68,10 @@ Jika ada uang masuk berlebih atau salah konfirmasi, pengelola harus melakukan re
 ## Pembaruan backend
 
 Terapkan migration `20261009090000_manual_bank_transfers` dengan `npx prisma migrate deploy` pada environment tujuan, generate Prisma Client, lalu restart backend. Migration menambah tabel/kolom/indeks dan mempertahankan data lama. Tidak memerlukan API key bank atau gateway. Pengaturan rekening dilakukan dari aplikasi, bukan `.env`.
+
+
+## Koreksi pembayaran yang sudah dikonfirmasi
+
+Pengelola dana keluarga, selain peminjam, memilih **Koreksi pembayaran** pada riwayat cicilan. Alasan 5–500 karakter wajib diisi. API `POST /payments/:id/reverse` membuat transaksi kas pengimbang keluar, mempertahankan catatan pembayaran/kas lama, mengembalikan sisa tagihan, dan membuka kembali status Loan/FundRequest menjadi ACTIVE bila sebelumnya lunas. Waktu, petugas, dan alasan koreksi tercatat pada pembayaran dan audit; peminjam menerima pemberitahuan. Uang di bank tidak otomatis dikembalikan. Koreksi ditolak secara atomik bila saldo kas bebas tidak mencukupi atau catatan kas dan pembayaran tidak cocok.
+
+Laporan pembayaran tidak dapat dikirim jika tidak tersedia pengelola dana aktif selain peminjam. Admin wajib menetapkan pemeriksa terlebih dahulu. Pengelola dana terakhir dan pemeriksa independen untuk laporan yang masih menunggu dilindungi saat mengubah peran anggota.

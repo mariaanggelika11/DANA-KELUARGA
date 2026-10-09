@@ -40,7 +40,7 @@ Implementasi baru memakai kembali `Family`, `FamilyMember`, `LedgerEntry`, `Loan
 
 Misalnya kontribusi Runi Rp4 juta dan permintaan Rp6 juta: sistem membuat satu FundRequest, mencadangkan Rp6 juta kas dan Rp4 juta kontribusi Runi, lalu membuat Loan **Rp2 juta**. Selama approval belum ada uang keluar dan belum ada cicilan aktif. Releaser mencatat WITHDRAWAL Rp4 juta dan LOAN_DISBURSEMENT Rp2 juta dalam satu transaction. Penolakan/RETURN membatalkan seluruh permintaan dan melepas cadangan. RETURN menggunakan pengajuan baru untuk mempertahankan snapshot historis.
 
-Jika permintaan ≤ kontribusi tersedia, tarikan langsung dicatat tanpa Loan atau approval pinjaman. Anggota tidak perlu menjadi Maker untuk setoran atau tarikan dananya sendiri. Pinjaman tetap mengikuti assignment Maker/Approver/Releaser yang sudah dikonfigurasi; pemohon/peminjam tidak boleh menyetujui sendiri. Kebijakan lama satu pengajuan/pinjaman aktif per anggota tetap berlaku untuk bagian pinjaman.
+Jika permintaan ≤ kontribusi tersedia, tarikan langsung dicatat tanpa Loan atau approval pinjaman. Anggota tidak perlu menjadi Maker untuk melaporkan setoran atau menarik kontribusinya sendiri. Setoran baru berstatus Menunggu pemeriksaan, dan baru menambah ledger CONTRIBUTION setelah pengelola dana aktif selain penyetor mengonfirmasi uang masuk. Riwayat setoran lama tetap tersimpan. Pinjaman tetap mengikuti assignment Maker/Approver/Releaser yang sudah dikonfigurasi; pemohon/peminjam tidak boleh menyetujui sendiri. Kebijakan lama satu pengajuan/pinjaman aktif per anggota tetap berlaku untuk bagian pinjaman.
 
 Saldo lama berjenis OTHER_INCOME/INITIAL_BALANCE tidak diberi pemilik kontribusi secara otomatis. Loan lama tanpa snapshot approval/disbursedAt tetap membutuhkan rekonsiliasi; tidak dipalsukan menjadi pinjaman yang sudah dicairkan.
 
@@ -124,14 +124,14 @@ npm test
 
 Hasil pengujian: 125 test backend, 25 test utility frontend; integrasi PostgreSQL memeriksa setoran, tarikan < / = / > kontribusi, reservation/rejection, self-approval/tenant denial, approval/release ganda, tarikan bersamaan, pembayaran sebagian/lunas, snapshot ledger dan larangan hard delete, serta email simulasi. Browser Chrome memakai API fixture dan memeriksa login/registrasi, empat lebar layar, navigasi, input nominal/caret/paste, warning saldo dan dialog.
 
-**Status database:** migration telah diterapkan dan Prisma Client dibuat ulang. Restart API yang masih berjalan sebelum perbaikan, lalu login ulang sebagai Super Admin. Jangan menjalankan seed karena akan membuat data contoh kembali. Buat keluarga, anggota, dan hirarki baru melalui aplikasi.
+**Status database:** migration telah diterapkan dan Prisma Client dibuat ulang. Restart API yang masih berjalan sebelum perbaikan, lalu login ulang sebagai Super Admin. Bootstrap `prisma:seed` hanya membuat Super Admin dari konfigurasi lokal, tanpa keluarga atau transaksi contoh, dan mempertahankan akun yang sudah ada. Buat keluarga, anggota, dan hirarki baru melalui aplikasi.
 
 
 ## Pembaruan kanal email saja
 
 Migration `20260918170000_email_only` telah diterapkan. Tabel pesan serta kolom persetujuan WhatsApp dihapus; migration lama dipertahankan sebagai riwayat schema yang tidak boleh diubah. Kode runtime, worker, konfigurasi, dan UI tidak lagi menggunakan WhatsApp. Nomor telepon tetap merupakan kontak akun, bukan kanal notifikasi.
 
-Deduplikasi event sekarang menggunakan `EmailMessage.eventKey`, dan inbox aplikasi dibuat hanya saat event baru dimasukkan. Pencatatan kas tidak bergantung pada keberhasilan SMTP. Menu Pengaturan menampilkan email akun, mode pengiriman, dan riwayat email sesuai scope akses pengguna.
+Deduplikasi event sekarang menggunakan `EmailMessage.eventKey`, dan inbox aplikasi dibuat hanya saat event baru dimasukkan. Pencatatan kas tidak bergantung pada keberhasilan SMTP. Menu Pengaturan difokuskan pada rekening pembayaran keluarga; tampilan riwayat email dihapus. Email tetap dikirim otomatis dan catatan pengiriman tetap disimpan untuk pemeriksaan operasional. Pemberitahuan pengguna tersedia melalui menu Notifikasi, dan alamat email akun tercantum pada menu akun.
 
 Konfigurasi saat pemeriksaan: `EMAIL_MODE=disabled`, SMTP belum diisi. Untuk email nyata, atur `EMAIL_FROM` dan kredensial penyedia (`SMTP_*` untuk `smtp`, `RESEND_API_KEY` untuk `resend`), lalu ubah `EMAIL_MODE` dan restart API. Jangan memasukkan password SMTP ke repository atau chat. Tidak ada email nyata yang dikirim selama pengujian.
 
@@ -152,3 +152,11 @@ Migration baru `20261009090000_manual_bank_transfers` bersifat tambahan: menamba
 Alur pembayaran satu klik mencatat email untuk laporan baru kepada pengelola dana, alasan penolakan kepada peminjam, dan penerimaan/pelunasan kepada peminjam. Pemeriksaan nyata tersedia melalui `npm run email:check -- --to alamat-akun@example.com`; perintah memakai outbox aplikasi dan hanya memproses satu record uji. `SENT` berarti penyedia menerima pesan; penerimaan inbox/spam perlu dikonfirmasi penerima. Record lama yang dibatalkan saat email nonaktif tidak diaktifkan ulang secara otomatis.
 
 Uji PostgreSQL menggunakan schema fixture acak yang dibuat dan dihapus oleh `npm run test:cash:integration`. Uji ini tidak mengubah data pada schema aplikasi. Pengiriman email pada fixture menggunakan simulasi khusus email. Tidak ada transfer bank nyata, deployment, atau migrasi pada schema aplikasi dalam pemeriksaan ini. Hasil uji pada bagian dokumentasi terdahulu tetap merupakan catatan historis.
+
+## Koreksi setoran yang sudah dikonfirmasi
+
+Pengelola dana keluarga selain penyetor dapat memilih **Koreksi setoran** pada Laporan setoran, dengan alasan wajib. Konfirmasi yang keliru dibatalkan melalui catatan pembalik, bukan menghapus riwayat: status menjadi **Dikoreksi**, kas dan kontribusi bersih berkurang sebesar nominal setoran, dan petugas/waktu/alasan tetap tersimpan. Nominal atau tujuan yang salah diperbaiki dengan laporan setoran baru setelah koreksi.
+
+Koreksi hanya berjalan jika kas dan kontribusi yang belum ditarik atau dicadangkan mencukupi. Jika dana sudah digunakan, selesaikan pengajuan terkait dan pulihkan dana terlebih dahulu; aplikasi tidak membuat saldo negatif. Koreksi pencatatan tidak memindahkan uang melalui bank. Riwayat setoran lama yang hanya berupa ledger tidak termasuk aksi koreksi laporan ini.
+
+Hak pengajuan pada Pinjaman/Kas ikut dimuat ulang setiap 15 detik ketika halaman terlihat dan saat kembali fokus. Logout segera mencabut sesi perangkat tersebut; pemulihan password melalui email mencabut seluruh sesi. Penjelasan API dan prosedur penerapan tersedia pada README backend bagian penutupan gap.

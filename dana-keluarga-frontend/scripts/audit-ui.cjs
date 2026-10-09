@@ -51,12 +51,15 @@ const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
             withdrawn: "0",
             reserved: "0",
             available: contributionAvailable,
+            withdrawable: contributionAvailable,
           },
           loanTotal: "0",
           repaid: "0",
           outstanding: "0",
+          familyLoanTotals: { loanTotal: "0", repaid: "0", outstanding: "0" },
           contributions: [],
           requests: [],
+          requestsTotal: 0,
         };
       if (p === "/auth/login")
         return route.fulfill({
@@ -82,6 +85,7 @@ const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
           json: { success: false, error: { code: "TOKEN_EXPIRED" } },
         });
       if (p === "/auth/me") data = user();
+      else if (p === "/cash/contributions") data = { items: [], total: 0 };
       else if (p === "/management/families") data = families;
       else if (
         p === "/management/registrations" ||
@@ -383,18 +387,50 @@ const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
     );
     await page.keyboard.press("Escape");
     assert.equal(await page.getByRole("dialog").count(), 0);
-    await page.getByRole("button", { name: "Ajukan pinjaman", exact: true }).click();
-    await page.getByRole("dialog").getByLabel("Total dana yang dibutuhkan", { exact: true }).fill("3000000");
-    assert.equal(await page.getByRole("button", { name: "Kirim pengajuan", exact: true }).isDisabled(), true);
-    await page.getByRole("button", { name: "Gunakan penarikan kontribusi", exact: true }).click();
-    assert.equal(await page.getByRole("button", { name: "Tarik kontribusi", exact: true }).isEnabled(), true);
+    await page
+      .getByRole("button", { name: "Ajukan pinjaman", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByLabel("Total dana yang dibutuhkan", { exact: true })
+      .fill("3000000");
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Kirim pengajuan", exact: true })
+        .isDisabled(),
+      true,
+    );
+    await page
+      .getByRole("button", {
+        name: "Gunakan penarikan kontribusi",
+        exact: true,
+      })
+      .click();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Tarik kontribusi", exact: true })
+        .isEnabled(),
+      true,
+    );
     assert.equal(new URL(page.url()).searchParams.get("view"), "loans");
     await page.keyboard.press("Escape");
     contributionAvailable = "0";
     await page.goto(`${base}/?view=ledger`);
-    await page.getByRole("button", { name: "Tarik kontribusi", exact: true }).click();
-    await page.getByText("Anda belum memiliki kontribusi yang bisa ditarik.", { exact: false }).waitFor();
-    assert.equal(await page.getByRole("dialog").getByRole("button", { name: "Tarik kontribusi", exact: true }).isDisabled(), true);
+    await page
+      .getByRole("button", { name: "Tarik kontribusi", exact: true })
+      .click();
+    await page
+      .getByText("Anda belum memiliki kontribusi yang bisa ditarik.", {
+        exact: false,
+      })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Tarik kontribusi", exact: true })
+        .isDisabled(),
+      true,
+    );
     await page.keyboard.press("Escape");
     contributionAvailable = "4000000";
     expired = true;

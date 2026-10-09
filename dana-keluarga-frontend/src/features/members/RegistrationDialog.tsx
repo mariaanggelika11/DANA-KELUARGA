@@ -357,7 +357,7 @@ export function RegistrationDialog({
                   autoComplete="name"
                   value={form.name}
                   onChange={(event) => update("name", event.target.value)}
-                  placeholder="Contoh: Rani Kusuma"
+                  placeholder="Nama lengkap anggota"
                 />
               </label>
               <label>
@@ -430,7 +430,7 @@ export function RegistrationDialog({
                       onChange={(event) =>
                         update("familyName", event.target.value)
                       }
-                      placeholder="Keluarga Dani"
+                      placeholder="Nama keluarga"
                     />
                   </label>
                   <label>
@@ -444,7 +444,7 @@ export function RegistrationDialog({
                       onChange={(event) =>
                         update("familyCode", event.target.value.toUpperCase())
                       }
-                      placeholder="KELUARGA-DANI"
+                      placeholder="Kode unik keluarga"
                     />
                   </label>
                   <label>

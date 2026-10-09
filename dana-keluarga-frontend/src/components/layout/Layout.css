@@ -28,13 +28,6 @@
 .hamburger-button,
 .notification-trigger {
   position: relative;
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  flex-shrink: 0;
-  border-radius: 9px;
-  color: #665d69;
 }
 .hamburger-button:hover,
 .notification-trigger:hover,
@@ -49,7 +42,7 @@
   padding: 0;
   white-space: nowrap;
   font:
-    700 25px 'Playfair Display',
+    700 25px "Playfair Display",
     serif;
 }
 .brand-link img {
@@ -211,7 +204,7 @@
   text-align: left;
 }
 .account-trigger:hover,
-.account-trigger[aria-expanded='true'] {
+.account-trigger[aria-expanded="true"] {
   border-color: var(--line);
   background: #faf6f0;
 }
@@ -260,6 +253,8 @@
 .account-details > svg {
   flex-shrink: 0;
   color: #74657c;
+  width: 20px;
+  height: 20px;
 }
 .account-details > div {
   min-width: 0;
@@ -291,6 +286,8 @@
   padding: 12px 9px;
   text-align: left;
   font-size: 13px;
+  min-height: 44px;
+  line-height: 1.4;
   border-radius: 6px;
 }
 .account-disclosure > button:hover {

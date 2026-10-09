@@ -228,8 +228,23 @@ export async function processEmails(
           (total, item) => total.add(item.remainingAmount),
           current.loan.principalAmount.sub(current.loan.principalAmount),
         );
-        body = `Pengingat cicilan ke-${current.installmentNumber}: ${formatMoney(current.remainingAmount)}, jatuh tempo ${wibDay(current.dueDate)}. Total pinjaman ${formatMoney(current.loan.principalAmount)}, sudah dibayar ${formatMoney(current.loan.principalAmount.sub(outstanding))}, sisa tagihan ${formatMoney(outstanding)}. Lihat rincian: ${env.FRONTEND_URL.replace(/\/$/, "")}/?installment=${current.id}`;
+        body = `Pengingat cicilan ke-${current.installmentNumber}: ${formatMoney(current.remainingAmount)}, jatuh tempo ${wibDay(current.dueDate)}. Total pinjaman ${formatMoney(current.loan.principalAmount)}, sudah dibayar ${formatMoney(current.loan.principalAmount.sub(outstanding))}, sisa tagihan ${formatMoney(outstanding)}. Lihat rincian: ${(env.PUBLIC_APP_URL ?? env.FRONTEND_URL).replace(/\/$/, "")}/?installment=${current.id}`;
       }
+      // Queued messages may predate deployment. Keep public links current, and
+      // omit localhost links from real mail until the app has a public address.
+      const appUrl = env.PUBLIC_APP_URL ?? env.FRONTEND_URL;
+      const localOrigin =
+        /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+)?(?=\/|\s|$)/g;
+      const localUrl =
+        /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+)?(?:\/[^\s]*)?(?=\s|$)/g;
+      const hostname = new URL(appUrl).hostname;
+      const local = ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
+      if (!local) body = body.replace(localOrigin, appUrl.replace(/\/$/, ""));
+      else if (env.EMAIL_MODE === "smtp" || env.EMAIL_MODE === "resend")
+        body = body.replace(
+          localUrl,
+          "Buka aplikasi Dana Keluarga untuk melihat rincian.",
+        );
       // Simulation has no sender: the email is rendered and recorded but never leaves the server.
       await sender?.({
         id: message.id,

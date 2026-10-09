@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   db: {
     $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
     user: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
     family: { findUnique: vi.fn(), create: vi.fn() },
     familyMember: { findUnique: vi.fn(), create: vi.fn() },
@@ -34,6 +35,10 @@ const member = () =>
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.hash.mockResolvedValue("hash");
+  mocks.db.user.findUnique.mockResolvedValue({
+    isActive: true,
+    systemRole: "SUPER_ADMIN",
+  });
   mocks.db.$transaction.mockImplementation((run) => run(mocks.db));
   mocks.db.family.findUnique.mockResolvedValue({
     id: familyId,
@@ -176,6 +181,7 @@ describe("registration authorization and audit", () => {
     mocks.db.familyMember.findUnique.mockResolvedValue({
       role: "MEMBER",
       status: "ACTIVE",
+      user: { isActive: true, systemRole: "USER" },
     });
     await expect(
       registerFamilyAccess({ ...actor, systemRole: "USER" }, member()),
@@ -200,7 +206,13 @@ describe("registration authorization and audit", () => {
       { isActive: false, systemRole: "USER" },
       { isActive: true, systemRole: "SUPER_ADMIN" },
     ]) {
-      mocks.db.user.findUnique.mockResolvedValue(candidate);
+      mocks.db.user.findUnique.mockImplementation(({ where }) =>
+        Promise.resolve(
+          where.id === actor.sub
+            ? { isActive: true, systemRole: "SUPER_ADMIN" }
+            : candidate,
+        ),
+      );
       await expect(registerFamilyAccess(actor, input)).rejects.toMatchObject({
         code: "INVALID_MEMBER",
       });
@@ -209,14 +221,20 @@ describe("registration authorization and audit", () => {
     expect(mocks.db.familyMember.create).not.toHaveBeenCalled();
   });
   it("links existing accounts without password changes and refuses repeated membership", async () => {
-    mocks.db.user.findUnique.mockResolvedValue({
-      id: otherId,
-      name: "Rani",
-      email: person.email,
-      phone: person.phone,
-      systemRole: "USER",
-      isActive: true,
-    });
+    mocks.db.user.findUnique.mockImplementation(({ where }) =>
+      Promise.resolve(
+        where.id === actor.sub
+          ? { isActive: true, systemRole: "SUPER_ADMIN" }
+          : {
+              id: otherId,
+              name: "Rani",
+              email: person.email,
+              phone: person.phone,
+              systemRole: "USER",
+              isActive: true,
+            },
+      ),
+    );
     const input = registrationSchema.parse({
       type: "EXISTING_MEMBER",
       familyId,
@@ -286,10 +304,24 @@ it("reports the actual unique field when concurrent registration wins the race",
 });
 
 it("registers a new member as treasurer", async () => {
-  const input = registrationSchema.parse({ ...person, type: "NEW_MEMBER", familyId, role: "TREASURER" });
+  const input = registrationSchema.parse({
+    ...person,
+    type: "NEW_MEMBER",
+    familyId,
+    role: "TREASURER",
+  });
   await registerFamilyAccess(actor, input);
-  expect(mocks.db.familyMember.create).toHaveBeenCalledWith({ data: { familyId, userId: otherId, role: "TREASURER" } });
+  expect(mocks.db.familyMember.create).toHaveBeenCalledWith({
+    data: { familyId, userId: otherId, role: "TREASURER" },
+  });
 });
 it("accepts treasurer when linking an existing account", () => {
-  expect(registrationSchema.parse({ type: "EXISTING_MEMBER", familyId, existingUserId: otherId, role: "TREASURER" })).toHaveProperty("role", "TREASURER");
+  expect(
+    registrationSchema.parse({
+      type: "EXISTING_MEMBER",
+      familyId,
+      existingUserId: otherId,
+      role: "TREASURER",
+    }),
+  ).toHaveProperty("role", "TREASURER");
 });

@@ -18,11 +18,20 @@ const prisma = new PrismaClient();
     for (const [command, args] of [
       ["./node_modules/.bin/prisma", ["migrate", "deploy"]],
       ["./node_modules/.bin/tsx", ["scripts/verify-family-cash.ts"]],
+      ["./node_modules/.bin/tsx", ["scripts/verify-access-races.ts"]],
+      ["./node_modules/.bin/tsx", ["scripts/verify-password-change.ts"]],
+      ["./node_modules/.bin/tsx", ["scripts/verify-gap-fixes.ts"]],
+      ...(process.env.PLAYWRIGHT_MODULE
+        ? [1440, 390, 320].map((width) => [
+            "./node_modules/.bin/tsx",
+            ["scripts/verify-browser-gap-fixes.ts", String(width)],
+          ])
+        : []),
     ]) {
       const result = spawnSync(command, args, {
         env,
         encoding: "utf8",
-        timeout: 180000,
+        timeout: 360000,
       });
       if (result.status !== 0)
         throw new Error(

@@ -7,6 +7,7 @@ export type AppPage =
   | "Anggota"
   | "Notifikasi"
   | "Pengaturan"
+  | "Ubah password"
   | "Panduan"
   | "Setup Hirarki"
   | "Persetujuan";
@@ -37,6 +38,7 @@ export const pageQueries: Record<AppPage, string> = {
   Anggota: "members",
   Notifikasi: "notifications",
   Pengaturan: "settings",
+  "Ubah password": "change-password",
   Panduan: "help",
   "Setup Hirarki": "hierarchy",
   Persetujuan: "approvals",

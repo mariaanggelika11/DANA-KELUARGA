@@ -1,0 +1,288 @@
+:root {
+  --button-accent: #b94730;
+  --button-accent-hover: #a13b27;
+  --button-soft: #fff0e7;
+  --button-border: #e3b49f;
+  --button-focus: #a6442e;
+  --button-height: 40px;
+  --button-icon-size: 18px;
+  --button-radius: 10px;
+  --button-touch-size: 44px;
+}
+
+button {
+  touch-action: manipulation;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--button-focus);
+  outline-offset: 3px;
+}
+
+/* Size the artwork separately from the clickable area. */
+button > svg {
+  display: block;
+  flex-shrink: 0;
+  width: var(--control-icon-size, var(--button-icon-size));
+  height: var(--control-icon-size, var(--button-icon-size));
+}
+
+button.primary,
+button.secondary-button,
+button.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--button-height);
+  padding: 9px 15px;
+  border: 1px solid transparent;
+  border-radius: var(--button-radius);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  text-decoration: none;
+}
+
+button.primary:not(:disabled) {
+  color: #fff;
+  background: linear-gradient(135deg, #c1533a, var(--button-accent));
+  border-color: #b94730;
+  box-shadow:
+    0 3px 8px #a6442e24,
+    inset 0 1px 0 #ffffff24;
+}
+
+button.secondary-button:not(:disabled) {
+  color: #97402b;
+  background: var(--button-soft);
+  border-color: var(--button-border);
+  box-shadow: 0 1px 2px #7b402910;
+}
+
+button.danger-button:not(:disabled) {
+  color: #fff;
+  background: linear-gradient(135deg, #b73535, #9b2929);
+  border-color: #9b2929;
+  box-shadow:
+    0 3px 8px #9b292920,
+    inset 0 1px 0 #ffffff24;
+}
+
+button:is(.primary, .secondary-button, .danger-button):disabled {
+  color: #817a74;
+  background: #f0ede9;
+  border-color: #ddd7d0;
+  box-shadow: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+button:is(.primary, .secondary-button, .danger-button):not(:disabled):active {
+  box-shadow: inset 0 2px 4px #44221924;
+}
+
+button.text-button {
+  --control-icon-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: #97402b;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Quiet controls stay recognizable without competing with the main action. */
+button.icon-button,
+button.hamburger-button,
+button.notification-trigger {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--button-height);
+  height: var(--button-height);
+  min-width: var(--button-height);
+  min-height: var(--button-height);
+  padding: 0;
+  border: 1px solid #e8dfd5;
+  border-radius: var(--button-radius);
+  background: #f8f3ec;
+  color: #665867;
+}
+
+button:is(.hamburger-button, .notification-trigger, .nav-item, .sidebar-help) {
+  --control-icon-size: 20px;
+}
+
+button.account-trigger,
+button.sidebar-help > svg:last-child {
+  --control-icon-size: 16px;
+}
+
+button:is(.password-toggle, .ss-toggle, .feedback-close) {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--button-height);
+  height: var(--button-height);
+  padding: 0;
+  border-radius: 8px;
+}
+
+button.feedback-close {
+  --control-icon-size: 16px;
+  width: 32px;
+  height: 32px;
+}
+
+.inbox-filters button,
+.approval-tabs button,
+.mode-switch button,
+.approver-order button {
+  min-height: 36px;
+  border: 1px solid #ded4ca;
+  border-radius: 8px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.approver-order button {
+  --control-icon-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding: 8px;
+}
+
+.inbox-filters button[aria-pressed="true"],
+.approval-tabs button[aria-pressed="true"],
+.mode-switch button.selected {
+  color: #97402b;
+  background: #ffede1;
+  border-color: #d7997d;
+  box-shadow: 0 1px 3px #7b402915;
+  font-weight: 600;
+}
+
+@media (hover: hover) {
+  button.primary:not(:disabled):hover {
+    background: linear-gradient(135deg, #b44731, var(--button-accent-hover));
+    border-color: var(--button-accent-hover);
+    box-shadow:
+      0 5px 12px #a6442e30,
+      inset 0 1px 0 #ffffff24;
+  }
+
+  button.secondary-button:not(:disabled):hover {
+    color: #81311e;
+    background: #ffe3d3;
+    border-color: #cc8968;
+    box-shadow: 0 3px 8px #a6442e18;
+  }
+
+  button.danger-button:not(:disabled):hover {
+    background: linear-gradient(135deg, #a52c2c, #842121);
+    box-shadow: 0 5px 12px #9b29292b;
+  }
+
+  button.text-button:not(:disabled):hover {
+    background: #ffede1;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .welcome button.text-button:hover {
+    background: #ffffff14;
+  }
+
+  button:is(.icon-button, .hamburger-button, .notification-trigger):not(
+      :disabled
+    ):hover {
+    color: #97402b;
+    background: #ffede1;
+    border-color: #d7997d;
+  }
+
+  .inbox-filters button:not(:disabled):hover,
+  .approval-tabs button:not(:disabled):hover,
+  .mode-switch button:not(:disabled):hover,
+  .approver-order button:not(:disabled):hover,
+  .approval-request-list > button:not(:disabled):hover,
+  .app-dialog .user-result:not(:disabled):hover {
+    border-color: #d7997d;
+    background: #fff0e7;
+  }
+}
+
+/* Retain compact row actions and square pagination controls. */
+.member-row button.member-edit-button {
+  --control-icon-size: 16px;
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.pagination button.pagination-arrow {
+  width: var(--button-height);
+  height: var(--button-height);
+  min-height: var(--button-height);
+  padding: 0;
+}
+
+@media (pointer: coarse) {
+  button:is(.primary, .secondary-button, .danger-button, .text-button),
+  .member-row button.member-edit-button,
+  button.hamburger-button,
+  button.notification-trigger,
+  .account-disclosure > button,
+  .app-sidebar .nav-item,
+  .inbox-filters button,
+  .approval-tabs button,
+  .mode-switch button,
+  .approver-order button {
+    min-height: var(--button-touch-size);
+  }
+
+  .pagination button.pagination-arrow,
+  button.hamburger-button,
+  button.notification-trigger,
+  button.icon-button,
+  button.password-toggle,
+  .ss-control button.ss-toggle,
+  button.feedback-close {
+    min-width: var(--button-touch-size);
+    min-height: var(--button-touch-size);
+    width: var(--button-touch-size);
+    height: var(--button-touch-size);
+    flex-basis: var(--button-touch-size);
+  }
+
+  .approver-order button {
+    min-width: var(--button-touch-size);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  button:is(.primary, .secondary-button, .danger-button) {
+    border: 1px solid ButtonText;
+  }
+}

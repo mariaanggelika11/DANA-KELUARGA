@@ -7,8 +7,9 @@ import { wibDay } from "../../utils/calendar";
 type Tx = Prisma.TransactionClient;
 export const money = formatMoney;
 export const installmentLink = (id: string) =>
-  `${env.FRONTEND_URL.replace(/\/$/, "")}/?installment=${encodeURIComponent(id)}`;
-const loansLink = () => `${env.FRONTEND_URL.replace(/\/$/, "")}/?view=loans`;
+  `${(env.PUBLIC_APP_URL ?? env.FRONTEND_URL).replace(/\/$/, "")}/?installment=${encodeURIComponent(id)}`;
+const loansLink = () =>
+  `${(env.PUBLIC_APP_URL ?? env.FRONTEND_URL).replace(/\/$/, "")}/?view=loans`;
 
 export async function enqueue(
   tx: Tx,
@@ -23,7 +24,12 @@ export async function enqueue(
   },
 ) {
   const titles: Record<string, string> = {
-    CONTRIBUTION: "Setoran dicatat",
+    CONTRIBUTION: "Setoran dikonfirmasi",
+    CONTRIBUTION_PENDING: "Setoran menunggu pemeriksaan",
+    CONTRIBUTION_REPORTED: "Laporan setoran baru",
+    CONTRIBUTION_REJECTED: "Laporan setoran ditolak",
+    CONTRIBUTION_REVERSED: "Setoran dikoreksi",
+    PAYMENT_REVERSED: "Pembayaran dikoreksi",
     WITHDRAWAL: "Tarikan dicatat",
     LOAN_REQUESTED: "Pengajuan pinjaman",
     LOAN_APPROVED: "Pinjaman disetujui",

@@ -40,6 +40,9 @@ async function main() {
       transport.close();
     }
     console.log("Koneksi TLS dan autentikasi SMTP berhasil.");
+    console.log(
+      "Koneksi SMTP tidak memverifikasi autentikasi domain. Penyedia dapat mengganti alamat From jika domain belum terverifikasi.",
+    );
   }
   if (!args.length) {
     console.log(
@@ -71,19 +74,32 @@ async function main() {
       eventKey: `EMAIL_TEST:${crypto.randomUUID()}`,
       familyId: member.familyId,
       userId: user.id,
-      subject: "Uji pengiriman email Dana Keluarga",
-      body: "Email ini menguji pengiriman pemberitahuan nyata melalui Dana Keluarga. Tidak ada perubahan saldo, cicilan, atau transaksi keuangan dari pengujian ini.",
+      subject: `Uji alamat pengirim Dana Keluarga (${env.EMAIL_MODE})`,
+      body: `Email ini menguji alamat pengirim Dana Keluarga. Pengirim yang diminta: ${env.EMAIL_FROM}. Layanan pengiriman: ${env.EMAIL_MODE}. Periksa alamat Dari pada email ini. Tidak ada perubahan saldo, cicilan, atau transaksi keuangan dari pengujian ini.`,
     },
   });
   await processEmails(new Date(), defaultSender(), { messageId: message.id });
-  const result = await prisma.emailMessage.findUniqueOrThrow({
-    where: { id: message.id },
-    select: { status: true, attempts: true, lastError: true },
-  });
+  const readResult = () =>
+    prisma.emailMessage.findUniqueOrThrow({
+      where: { id: message.id },
+      select: { status: true, attempts: true, lastError: true },
+    });
+  let result = await readResult();
+  // A running API worker can claim the test before this command does. Wait only for
+  // this message instead of reporting failure while delivery is still in progress.
+  for (
+    let attempt = 0;
+    result.status === "PROCESSING" && attempt < 20;
+    attempt++
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    result = await readResult();
+  }
   console.log(
     JSON.stringify({
       messageId: message.id,
       provider: env.EMAIL_MODE,
+      from: env.EMAIL_FROM,
       status: result.status,
       attempts: result.attempts,
     }),
@@ -94,7 +110,7 @@ async function main() {
         "Email uji belum diterima server penyedia. Periksa riwayat email aplikasi.",
     );
   console.log(
-    "Email uji diterima server penyedia. Periksa inbox atau spam penerima untuk memastikan penerimaan.",
+    "Email uji diterima server penyedia. Periksa inbox atau spam serta alamat Dari pada email yang diterima; from di atas adalah alamat yang diminta aplikasi.",
   );
 }
 main()

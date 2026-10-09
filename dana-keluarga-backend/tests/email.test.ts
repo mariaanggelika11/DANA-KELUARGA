@@ -48,6 +48,7 @@ beforeEach(() => {
   env.EMAIL_MODE = "simulation";
   env.EMAIL_FROM = "Dana Keluarga <no-reply@example.com>";
   env.EMAIL_REPLY_TO = undefined;
+  env.PUBLIC_APP_URL = undefined;
   db.emailMessage.findMany.mockResolvedValue([message]);
   db.emailMessage.updateMany.mockResolvedValue({ count: 1 });
   db.emailMessage.createMany.mockResolvedValue({ count: 1 });
@@ -329,4 +330,29 @@ describe("email template", () => {
     expect(html).toContain('href="http://localhost:5173/?view=loans&amp;x=1"');
     expect(text).toContain("http://localhost:5173/?view=loans&x=1");
   });
+});
+
+it("replaces old queued localhost app links with the configured public email URL", async () => {
+  env.PUBLIC_APP_URL = "https://dana.bulmar.tech";
+  const send = vi.fn().mockResolvedValue(undefined);
+  await processEmails(new Date(), send);
+  expect(send).toHaveBeenCalledWith(
+    expect.objectContaining({
+      text: expect.stringContaining("https://dana.bulmar.tech/?view=approvals"),
+      html: expect.not.stringContaining("localhost"),
+    }),
+  );
+});
+
+it("omits localhost links from real email until the public app URL is configured", async () => {
+  env.EMAIL_MODE = "resend";
+  const send = vi.fn().mockResolvedValue(undefined);
+  await processEmails(new Date(), send);
+  expect(send).toHaveBeenCalledWith(
+    expect.objectContaining({
+      text: expect.not.stringContaining("localhost"),
+      html: expect.not.stringContaining('href="http://localhost'),
+    }),
+  );
+  expect(lastUpdate()).toMatchObject({ status: "SENT" });
 });

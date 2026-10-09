@@ -1,4 +1,11 @@
 import { Router } from "express";
+import {
+  changePasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from "./auth.schemas";
+import { requestPasswordReset, resetPassword } from "./password-reset.service";
+import { changePassword } from "./password.service";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
@@ -10,6 +17,7 @@ import {
   createSession,
   getSessionUser,
   revokeRefreshToken,
+  revokeSession,
   rotateRefreshToken,
 } from "./auth.service";
 
@@ -78,8 +86,7 @@ authRouter.post("/login", authLimiter, async (req, res) => {
   const session = await createSession(
     user.id,
     profile?.familyId,
-    profile?.familyRole,
-    user.systemRole,
+    user.passwordHash,
   );
   await prisma.user.update({
     where: { id: user.id },
@@ -129,8 +136,80 @@ authRouter.post("/logout", authLimiter, async (req, res) => {
     })
     .safeParse(req.body);
   if (parsed.success) await revokeRefreshToken(parsed.data.refreshToken);
+  const bearer = req.headers.authorization?.startsWith("Bearer ")
+    ? req.headers.authorization.slice(7)
+    : undefined;
+  let accessSession: { userId: string; sessionId: string } | undefined;
+  if (bearer) {
+    try {
+      const payload = jwt.verify(bearer, env.JWT_ACCESS_SECRET, {
+        algorithms: ["HS256"],
+      });
+      const uuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (
+        typeof payload !== "string" &&
+        typeof payload.sub === "string" &&
+        uuid.test(payload.sub) &&
+        typeof payload.sid === "string" &&
+        uuid.test(payload.sid)
+      )
+        accessSession = { userId: payload.sub, sessionId: payload.sid };
+    } catch {
+      /* Already expired/invalid access tokens do not need revocation. */
+    }
+  }
+  if (accessSession)
+    await revokeSession(accessSession.userId, accessSession.sessionId);
   return res.json({ success: true, message: "Logout berhasil" });
 });
+
+const recoveryLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 5,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: {
+      code: "RATE_LIMITED",
+      message:
+        "Terlalu banyak permintaan pemulihan. Tunggu beberapa saat sebelum mencoba lagi.",
+    },
+  },
+});
+authRouter.post("/forgot-password", recoveryLimiter, async (req, res) => {
+  const { email } = forgotPasswordSchema.parse(req.body);
+  await requestPasswordReset(email);
+  // Identical response for unknown, inactive and active accounts.
+  res.json({
+    success: true,
+    message:
+      "Jika email terdaftar pada akun aktif, tautan pemulihan akan dikirim. Periksa inbox dan folder spam. Anda dapat meminta tautan baru setelah satu menit.",
+  });
+});
+authRouter.post("/reset-password", authLimiter, async (req, res) => {
+  await resetPassword(resetPasswordSchema.parse(req.body));
+  res.json({
+    success: true,
+    message:
+      "Password berhasil dipulihkan. Silakan masuk dengan password baru.",
+  });
+});
+
+authRouter.post(
+  "/password",
+  requireAuth,
+  authLimiter,
+  async (req: AuthRequest, res) => {
+    const input = changePasswordSchema.parse(req.body);
+    await changePassword(req.auth!.sub, req.auth!.authVersion ?? 0, input);
+    return res.json({
+      success: true,
+      message: "Password berhasil diubah. Silakan masuk kembali.",
+    });
+  },
+);
 
 authRouter.get("/me", requireAuth, async (req: AuthRequest, res) => {
   const user = await getSessionUser(req.auth!.sub, req.auth!.familyId);
@@ -170,12 +249,22 @@ authRouter.post(
           message: "Anda bukan anggota aktif keluarga ini.",
         },
       });
+    if ((req.auth!.authVersion ?? 0) !== user.authVersion)
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: "SESSION_REVOKED",
+          message: "Silakan masuk kembali.",
+        },
+      });
     const accessToken = jwt.sign(
       {
         sub: user.id,
         familyId: user.familyId,
         familyRole: user.familyRole,
         systemRole: user.systemRole,
+        authVersion: user.authVersion,
+        sid: req.auth!.sid,
       },
       env.JWT_ACCESS_SECRET,
       { expiresIn: "15m" },

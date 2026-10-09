@@ -1,3 +1,4 @@
+import { ContributionReports } from "./ContributionReports";
 import { Pagination } from "../../components/Pagination";
 import { useEffect, useState } from "react";
 import { LoadingState } from "../../components/LoadingState";
@@ -5,6 +6,8 @@ import { Feedback } from "../../components/Feedback";
 import { api } from "../../lib/api-client";
 import { formatCurrency as money } from "../../lib/currency";
 import { date } from "../../lib/format";
+import { RefreshButton } from "../../components/RefreshButton";
+import "./FamilyCash.css";
 import {
   FundTransactionDialog,
   type FundIntent,
@@ -14,7 +17,9 @@ type Contribution = {
   withdrawn: string;
   available: string;
   reserved: string;
+  withdrawable: string;
 };
+type LoanTotals = { loanTotal: string; repaid: string; outstanding: string };
 type Summary = {
   requestsTotal: number;
   balance: string;
@@ -24,7 +29,9 @@ type Summary = {
   loanTotal: string;
   repaid: string;
   outstanding: string;
-  contributions: (Contribution & { userId: string; name: string })[];
+  familyLoanTotals: LoanTotals;
+  contributions: (Contribution &
+    LoanTotals & { userId: string; name: string })[];
   requests: {
     id: string;
     amount: string;
@@ -32,6 +39,14 @@ type Summary = {
     loanAmount: string;
     status: string;
     createdAt: string;
+    disbursedAt: string | null;
+    paidOffAt: string | null;
+    loanProgress: {
+      repaid: string;
+      outstanding: string;
+      paidInstallments: number;
+      totalInstallments: number;
+    } | null;
     user: { name: string };
   }[];
 };
@@ -47,9 +62,11 @@ export function FamilyCash({
   onChanged,
   revision,
   onRequestLoan,
+  backgroundRevision = 0,
 }: {
   onChanged: () => void;
   revision: number;
+  backgroundRevision?: number;
   onRequestLoan?: () => void;
 }) {
   const [data, setData] = useState<Summary | null>(null);
@@ -77,15 +94,16 @@ export function FamilyCash({
         if (!controller.signal.aborted) setLoadedVersion(requestVersion);
       });
     return () => controller.abort();
-  }, [refresh, revision, requestVersion, page]);
+  }, [refresh, revision, requestVersion, page, backgroundRevision]);
   return (
-    <section className="panel workflow-panel">
+    <section className="panel workflow-panel family-cash">
       <div className="panel-heading">
         <div>
           <h2>Kas Keluarga</h2>
-          <p>Kontribusi pribadi, tarikan, dan pinjaman dicatat terpisah.</p>
+          <p>Saldo keluarga dan perkembangan dana setiap anggota.</p>
         </div>
         <div className="workflow-actions">
+          <RefreshButton loading={loading} onClick={onChanged} />
           <button
             className="secondary-button"
             disabled={!data || loading}
@@ -105,7 +123,10 @@ export function FamilyCash({
       {!mode && error && (
         <Feedback tone="error">
           {error}
-          <button onClick={() => setRefresh((value) => value + 1)}>
+          <button
+            className="secondary-button"
+            onClick={() => setRefresh((value) => value + 1)}
+          >
             Muat ulang
           </button>
         </Feedback>
@@ -114,17 +135,14 @@ export function FamilyCash({
       {loading && <LoadingState label="Memuat saldo keluarga..." />}
       {data && (
         <>
-          <dl className="workflow-details">
+          <dl className="cash-overview cash-details">
             {[
               ["Saldo kas keluarga", data.balance],
               ["Kas tersedia untuk diambil", data.availableCash],
-              ["Dana menunggu pencairan", data.reserved],
-              ["Total kontribusi saya", data.contribution.deposited],
-              ["Kontribusi saya tersedia", data.contribution.available],
-              ["Kontribusi saya dicadangkan", data.contribution.reserved],
-              ["Total pinjaman saya dicairkan", data.loanTotal],
-              ["Sudah saya kembalikan", data.repaid],
-              ["Sisa tagihan saya", data.outstanding],
+              ["Dana dicadangkan", data.reserved],
+              ["Pinjaman keluarga dicairkan", data.familyLoanTotals.loanTotal],
+              ["Cicilan keluarga dikonfirmasi", data.familyLoanTotals.repaid],
+              ["Sisa pinjaman keluarga", data.familyLoanTotals.outstanding],
             ].map(([label, value]) => (
               <div key={label}>
                 <dt>{label}</dt>
@@ -132,34 +150,135 @@ export function FamilyCash({
               </div>
             ))}
           </dl>
-          <h3>Kontribusi anggota</h3>
-          <p>
-            Rincian anggota lain hanya tersedia bagi Admin dan Pengelola dana.
+          <details className="cash-personal">
+            <summary>Posisi dana saya</summary>
+            <dl className="cash-details">
+              {[
+                ["Total setoran saya", data.contribution.deposited],
+                ["Saldo kontribusi saya", data.contribution.available],
+                ["Kontribusi saya dicadangkan", data.contribution.reserved],
+                ["Bisa saya tarik saat ini", data.contribution.withdrawable],
+                ["Pinjaman saya dicairkan", data.loanTotal],
+                ["Cicilan saya dikonfirmasi", data.repaid],
+                ["Sisa pinjaman saya", data.outstanding],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{money(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+          <h3>Dana dan pinjaman anggota</h3>
+          <p className="cash-explanation">
+            Saldo kontribusi berasal dari setoran anggota setelah tarikan dan
+            pencadangan. Jumlah yang bisa ditarik mengikuti kas keluarga yang
+            tersedia. Pembayaran cicilan menambah kas keluarga setelah
+            dikonfirmasi.
+          </p>
+          <p className="cash-privacy">
+            Admin dan Pengelola dana dapat melihat rincian seluruh anggota.
           </p>
           {data.contributions.map((member) => (
-            <article className="workflow-message" key={member.userId}>
+            <article
+              className="workflow-message cash-member"
+              key={member.userId}
+            >
               <strong>{member.name}</strong>
-              <p>
-                Setoran {money(member.deposited)} · Tarikan{" "}
-                {money(member.withdrawn)} · Tersedia {money(member.available)}
-              </p>
+              <dl className="cash-details cash-contributions">
+                {[
+                  ["Total setoran", member.deposited],
+                  ["Tarikan kontribusi", member.withdrawn],
+                  ["Saldo kontribusi", member.available],
+                  ["Bisa ditarik saat ini", member.withdrawable],
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{money(value)}</dd>
+                  </div>
+                ))}
+              </dl>
+              {Number(member.reserved) > 0 && (
+                <p>Kontribusi dicadangkan: {money(member.reserved)}</p>
+              )}
+              {Number(member.loanTotal) > 0 ? (
+                <dl className="cash-details cash-member-loan">
+                  {[
+                    ["Pinjaman dicairkan", member.loanTotal],
+                    ["Cicilan dikonfirmasi", member.repaid],
+                    ["Sisa pinjaman", member.outstanding],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <dt>{label}</dt>
+                      <dd>{money(value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <small>Belum ada pinjaman yang dicairkan.</small>
+              )}
             </article>
           ))}
+          <ContributionReports
+            revision={revision + refresh}
+            backgroundRevision={backgroundRevision}
+            onChanged={onChanged}
+          />
           <h3>Riwayat pengambilan dana</h3>
           {!data.requests.length && <p>Belum ada permintaan dana.</p>}
           {data.requests.map((request) => (
             <article key={request.id} className="workflow-message">
-              <strong>
-                {request.user.name} · {money(request.amount)}
-              </strong>
+              <div className="workflow-message-heading">
+                <strong>
+                  {request.user.name} · {money(request.amount)}
+                </strong>
+                <span className={`status ${request.status.toLowerCase()}`}>
+                  {request.status === "ACTIVE"
+                    ? Number(request.loanAmount) > 0
+                      ? "Cicilan berjalan"
+                      : "Tarikan dicatat"
+                    : (statuses[request.status] ?? request.status)}
+                </span>
+              </div>
               <p>
-                Tarikan {money(request.withdrawalAmount)} · Pinjaman{" "}
+                Tarikan kontribusi {money(request.withdrawalAmount)} · Pinjaman{" "}
                 {money(request.loanAmount)}
               </p>
-              <small>
-                {statuses[request.status] ?? request.status} ·{" "}
-                {date.format(new Date(request.createdAt))}
-              </small>
+              {request.loanProgress && (
+                <dl className="cash-details cash-request-progress">
+                  <div>
+                    <dt>Cicilan dikonfirmasi</dt>
+                    <dd>{money(request.loanProgress.repaid)}</dd>
+                  </div>
+                  <div>
+                    <dt>Sisa pinjaman</dt>
+                    <dd>{money(request.loanProgress.outstanding)}</dd>
+                  </div>
+                  <div>
+                    <dt>Cicilan lunas</dt>
+                    <dd>
+                      {request.loanProgress.paidInstallments} dari{" "}
+                      {request.loanProgress.totalInstallments}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+              <div className="cash-request-dates">
+                <small>
+                  {Number(request.loanAmount) > 0 ? "Diajukan" : "Dicatat"}{" "}
+                  {date.format(new Date(request.createdAt))}
+                </small>
+                {request.disbursedAt && (
+                  <small>
+                    Dicairkan {date.format(new Date(request.disbursedAt))}
+                  </small>
+                )}
+                {request.paidOffAt && (
+                  <small>
+                    Lunas {date.format(new Date(request.paidOffAt))}
+                  </small>
+                )}
+              </div>
             </article>
           ))}
           <Pagination

@@ -209,7 +209,7 @@ export function NotificationInbox({
         </div>
         <button
           type="button"
-          className="mark-all-button"
+          className="secondary-button mark-all-button"
           disabled={busy || loading || !data?.unreadCount}
           onClick={() => markRead()}
         >
@@ -273,6 +273,7 @@ export function NotificationInbox({
                       <div className="inbox-item-actions">
                         <button
                           type="button"
+                          className="secondary-button"
                           disabled={busy}
                           onClick={() => markRead(item, true)}
                         >
@@ -282,6 +283,7 @@ export function NotificationInbox({
                         {!item.isRead && (
                           <button
                             type="button"
+                            className="secondary-button"
                             disabled={busy}
                             onClick={() => markRead(item)}
                           >

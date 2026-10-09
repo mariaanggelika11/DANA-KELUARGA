@@ -19,7 +19,8 @@ const guides: Guide[] = [
     steps: [
       "Buka Ringkasan untuk melihat saldo kas dan sisa dana yang masih dipinjamkan.",
       "Buka Kas untuk membaca tanggal, keterangan, dan nominal setiap transaksi. Gunakan navigasi halaman untuk menelusuri catatan lama.",
-      "Setiap anggota dapat memilih Setor dana untuk mencatat dana yang sudah diserahkan. Admin/Bendahara memakai Catat kas untuk pemasukan/pengeluaran umum, bukan kontribusi pribadi.",
+      "Setiap anggota dapat memilih Setor dana untuk melaporkan transfer ke rekening keluarga. Setoran baru menambah kas dan kontribusi setelah pengelola dana lain memeriksa uang masuk pada Laporan setoran. Admin/Bendahara memakai Catat kas untuk pemasukan/pengeluaran umum, bukan kontribusi pribadi.",
+      "Jika setoran salah dikonfirmasi, pengelola dana lain dapat memilih Koreksi setoran pada Laporan setoran dan mengisi alasan. Kas dan kontribusi dikurangi; catatan asli tetap tersimpan. Koreksi ditolak bila dana sudah ditarik, dicadangkan, atau kas tidak cukup. Koreksi ini tidak memindahkan uang di bank.",
       "Saldo kas keluarga di Ringkasan adalah saldo total. Kas tersedia untuk diambil sudah dikurangi dana yang dicadangkan. Pengembalian pinjaman menambah kas, bukan kontribusi Anda.",
     ],
     target: "Kas",
@@ -50,21 +51,21 @@ const guides: Guide[] = [
       "Klik Saya sudah transfer. Nominal otomatis mengikuti sisa cicilan dan laporan langsung Menunggu pemeriksaan, tanpa mengisi formulir. Hanya peminjam dapat melaporkan cicilannya sendiri.",
       "Laporan berstatus Menunggu pemeriksaan belum mengurangi sisa cicilan. Pengelola dana keluarga memeriksa mutasi rekening dan mengonfirmasi Dana sudah masuk atau menolak dengan alasan.",
       "Setelah konfirmasi, status cicilan dan kas diperbarui. Jika semua cicilan lunas, pinjaman ditandai Lunas.",
+      "Pengelola dana dapat memilih Koreksi pembayaran pada riwayat pembayaran yang sudah dikonfirmasi, dengan alasan wajib. Kas berkurang dan tagihan dibuka kembali; riwayat pembayaran dan koreksi tetap tersimpan. Koreksi ini tidak memindahkan uang di bank.",
       "Jika laporan ditolak, baca alasan lalu laporkan kembali data yang benar. Pilih Perbarui status untuk memuat rincian terbaru. Jangan mentransfer ulang sebelum memastikan mutasi bank Anda.",
     ],
     target: "Cicilan",
   },
   {
     id: "notifications",
-    title: "Membaca pemberitahuan email",
+    title: "Membaca pemberitahuan",
     description:
       "Lonceng menunjukkan jumlah pemberitahuan akun Anda yang belum dibaca.",
     steps: [
       "Tekan lonceng di kanan atas atau pilih Notifikasi di sidebar.",
       "Gunakan filter Belum dibaca untuk menemukan pemberitahuan baru. Tandai satu per satu atau pilih Tandai semua dibaca.",
       "Buka rincian dari notifikasi untuk melihat pinjaman atau pembayaran terkait. Membaca notifikasi tidak mengubah status transaksi.",
-      "Buka Pengaturan untuk melihat alamat email akun dan riwayat pengiriman pemberitahuan.",
-      "Riwayat email menampilkan status pengiriman. Status diterima server email tidak berarti pesan sudah dibaca.",
+      "Pemberitahuan email dikirim otomatis ke alamat email yang terdaftar pada akun. Alamat tersebut dapat dilihat melalui menu akun di kanan atas.",
     ],
     target: "Notifikasi",
   },
@@ -74,9 +75,10 @@ const guides: Guide[] = [
     description: "Identitas akun kini berada di kanan atas.",
     steps: [
       "Tekan nama atau avatar di kanan atas untuk melihat nama, kontak, dan peran.",
-      "Pilih Pengaturan untuk melihat email tujuan dan riwayat pengiriman.",
-      "Pilih Keluar dari akun setelah selesai, terutama pada perangkat bersama.",
-      "Jika lupa password atau nomor akun salah, hubungi admin keluarga. Pengubahan password mandiri belum tersedia.",
+      "Alamat email akun tercantum pada menu ini. Hubungi admin jika alamat perlu diperbaiki.",
+      "Pilih Keluar dari akun setelah selesai, terutama pada perangkat bersama. Sesi perangkat tersebut langsung dicabut; sesi perangkat lain tetap berlaku.",
+      "Untuk mengubah password, tekan nama atau avatar di kanan atas lalu pilih Ubah password. Pada halaman tersebut, isi password lama, password baru, dan konfirmasinya. Setelah menyimpan, masuk kembali dengan password baru; sesi di seluruh perangkat dicabut.",
+      "Jika lupa password, pilih Lupa password? pada halaman masuk dan isi email akun. Periksa inbox/spam, buka tautan yang berlaku 30 menit, lalu simpan password baru. Tautan hanya bisa dipakai sekali dan seluruh sesi akun akan dicabut. Hubungi admin jika alamat email atau nomor akun perlu diperbaiki.",
     ],
   },
 ];
@@ -110,9 +112,9 @@ export function HelpGuide({
       "Satu konfigurasi aktif per keluarga dengan urutan dan riwayat versi.",
     steps: [
       "Buka Setup Hirarki dan pilih keluarga yang ingin diatur. Super Admin dapat memilih seluruh keluarga; Admin hanya keluarganya sendiri.",
-      "Pilih Maker, tambahkan approver secara berurutan, misalnya Dani lalu Danang, dan pilih Releaser yang berbeda.",
+      "Pilih Maker, tambahkan approver sesuai urutan persetujuan, dan pilih Releaser yang berbeda.",
       "Seluruh petugas harus anggota aktif keluarga tersebut. Pembuat dan peminjam tidak boleh menjadi approver atau releaser pada pengajuan yang sama.",
-      "Isi alasan lalu simpan. Untuk dua approver diperlukan minimal empat orang berbeda: Maker, Dani, Danang, dan Releaser.",
+      "Isi alasan lalu simpan. Untuk dua approver diperlukan minimal empat orang berbeda: Maker, approver pertama, approver kedua, dan Releaser.",
       "Perubahan berlaku untuk pengajuan baru. Pengajuan berjalan tetap menggunakan versi saat diajukan. Pinjaman lama tanpa snapshot memerlukan tinjauan migrasi.",
       "Super Admin mengatur akses dan hirarki, tetapi tidak dapat menyetujui atau mencairkan pinjaman.",
     ],
@@ -160,8 +162,8 @@ export function HelpGuide({
         </div>
       </div>
       <Feedback tone="info" title="Status fitur saat ini">
-        Pemberitahuan menggunakan email akun. Status pengiriman tersedia di
-        Pengaturan. Pembayaran cicilan dilakukan melalui transfer bank manual.
+        Pemberitahuan dikirim ke email akun dan dapat dibaca melalui menu
+        Notifikasi. Pembayaran cicilan dilakukan melalui transfer bank manual.
         Hanya peminjam melaporkan transfer, kemudian pengelola dana keluarga
         mengonfirmasi uang masuk berdasarkan mutasi rekening.
       </Feedback>
@@ -219,9 +221,9 @@ export function HelpGuide({
           </dd>
           <dt>Email belum masuk</dt>
           <dd>
-            Periksa folder spam dan riwayat pengiriman di Pengaturan. Jika mode
-            pengiriman belum aktif, hubungi pengelola untuk konfigurasi SMTP
-            atau Resend.
+            Periksa folder spam dan pastikan alamat email pada menu akun sudah
+            benar. Hubungi admin jika email masih belum masuk. Pemberitahuan
+            terkait akun Anda juga dapat dibaca melalui menu Notifikasi.
           </dd>
           <dt>Pembayaran masih menunggu</dt>
           <dd>

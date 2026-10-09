@@ -157,7 +157,7 @@
   border-radius: 6px;
   font-size: 12px;
 }
-.approval-tabs button[aria-pressed='true'] {
+.approval-tabs button[aria-pressed="true"] {
   background: #f5ded3;
   color: #94482f;
   font-weight: 700;

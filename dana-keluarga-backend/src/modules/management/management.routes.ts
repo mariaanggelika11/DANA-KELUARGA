@@ -145,9 +145,20 @@ managementRouter.get("/members", requireAuth, async (req: AuthRequest, res) => {
   return res.json({ success: true, data: members });
 });
 
-managementRouter.patch("/members/:id/role", requireAuth, async (req: AuthRequest, res) => {
-  const id = z.string().uuid().parse(req.params.id);
-  const { role } = z.object({ role: z.enum(["ADMIN", "MEMBER", "TREASURER"]) }).strict().parse(req.body);
-  const data = await updateMemberRole(req.auth!, id, role);
-  res.json({ success: true, data, message: "Peran anggota berhasil diperbarui." });
-});
+managementRouter.patch(
+  "/members/:id/role",
+  requireAuth,
+  async (req: AuthRequest, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    const { role } = z
+      .object({ role: z.enum(["ADMIN", "MEMBER", "TREASURER"]) })
+      .strict()
+      .parse(req.body);
+    const data = await updateMemberRole(req.auth!, id, role);
+    res.json({
+      success: true,
+      data,
+      message: "Peran anggota berhasil diperbarui.",
+    });
+  },
+);

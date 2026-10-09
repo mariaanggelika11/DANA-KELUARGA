@@ -12,6 +12,8 @@ import jwt from "jsonwebtoken";
 import { Prisma } from "@prisma/client";
 const mocks = vi.hoisted(() => ({
   db: {
+    authSession: { findFirst: vi.fn(), updateMany: vi.fn() },
+    refreshToken: { updateMany: vi.fn() },
     fundRequest: {
       aggregate: vi.fn(),
       findMany: vi.fn(),
@@ -104,7 +106,13 @@ let active = true;
 let systemRole = "USER";
 const token = () =>
   jwt.sign(
-    { sub: userId, familyId, familyRole: "ADMIN", systemRole: "SUPER_ADMIN" },
+    {
+      sub: userId,
+      sid: userId,
+      familyId,
+      familyRole: "ADMIN",
+      systemRole: "SUPER_ADMIN",
+    },
     env.JWT_ACCESS_SECRET,
     { expiresIn: "1h" },
   );
@@ -139,6 +147,7 @@ afterAll(async () => {
 });
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.db.authSession.findFirst.mockResolvedValue({ id: userId });
   role = "MEMBER";
   memberships = true;
   active = true;
@@ -294,7 +303,8 @@ describe("loan journey through HTTP routes", () => {
     mocks.db.family.findUnique.mockResolvedValue({ id: familyId });
     mocks.db.familyMember.findUnique.mockResolvedValue({
       status: "ACTIVE",
-      user: { isActive: true },
+      role: "MEMBER",
+      user: { isActive: true, systemRole: "USER" },
     });
     mocks.db.familyMember.findFirst.mockResolvedValue({ id: userId, userId });
     mocks.db.familyMember.findMany.mockResolvedValue([]);
@@ -483,6 +493,7 @@ describe("explicit active-family context", () => {
     mocks.db.user.findUnique.mockResolvedValue({
       id: userId,
       name: "Anggota",
+      authVersion: 0,
       isActive: true,
       systemRole: "USER",
       memberships: [
@@ -503,6 +514,7 @@ describe("explicit active-family context", () => {
     mocks.db.user.findUnique.mockResolvedValue({
       id: userId,
       name: "Anggota",
+      authVersion: 0,
       isActive: true,
       systemRole: "USER",
       memberships: [
@@ -735,7 +747,8 @@ describe("family ledger pages and managing role access", () => {
   it("keeps a member's fund history private when paging past 100 records", async () => {
     mocks.db.familyMember.findUnique.mockResolvedValue({
       status: "ACTIVE",
-      user: { isActive: true },
+      role: "MEMBER",
+      user: { isActive: true, systemRole: "USER" },
     });
     mocks.db.familyMember.findMany.mockResolvedValue([]);
     mocks.db.ledgerEntry.groupBy.mockResolvedValue([]);
@@ -781,7 +794,9 @@ describe("manual transfer HTTP permissions", () => {
       accountNumber: "0012345678",
       accountHolder: "Keluarga A",
     });
-    mocks.db.familyMember.findMany.mockResolvedValue([]);
+    mocks.db.familyMember.findMany.mockResolvedValue([
+      { userId: "other-manager" },
+    ]);
   });
   it("accepts one-click reporting with server-controlled amount and pending status", async () => {
     mocks.db.loanInstallment.findFirst.mockResolvedValue({
@@ -995,5 +1010,24 @@ describe("manual transfer HTTP permissions", () => {
       ).status,
     ).toBe(403);
     expect(mocks.db.payment.update).not.toHaveBeenCalled();
+  });
+});
+
+it("rejects an access token immediately when logout revoked its session", async () => {
+  mocks.db.authSession.findFirst.mockResolvedValue(null);
+  const response = await request("/notifications");
+  expect(response.status).toBe(401);
+  expect((await response.json()).error.code).toBe("SESSION_REVOKED");
+  expect(mocks.db.notification.findMany).not.toHaveBeenCalled();
+});
+
+it("can logout with a valid access token when the refresh token is missing", async () => {
+  const response = await request("/auth/logout", "POST", {
+    refreshToken: null,
+  });
+  expect(response.status).toBe(200);
+  expect(mocks.db.authSession.updateMany).toHaveBeenCalledWith({
+    where: { id: userId, userId, revokedAt: null },
+    data: { revokedAt: expect.any(Date) },
   });
 });

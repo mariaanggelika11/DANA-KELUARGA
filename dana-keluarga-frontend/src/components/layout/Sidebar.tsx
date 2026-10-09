@@ -10,27 +10,27 @@ import {
   Settings,
   Users,
   WalletCards,
-} from 'lucide-react'
-import { type AppPage, type SessionUser } from '../../types/navigation'
+} from "lucide-react";
+import { type AppPage, type SessionUser } from "../../types/navigation";
 
 type Props = {
-  user: SessionUser
-  active: AppPage
-  unpaidCount: number
-  unreadCount: number | null
-  onNavigate: (page: AppPage) => void
-}
+  user: SessionUser;
+  active: AppPage;
+  unpaidCount: number;
+  unreadCount: number | null;
+  onNavigate: (page: AppPage) => void;
+};
 const mainItems = [
-  { label: 'Ringkasan', icon: LayoutDashboard },
-  { label: 'Kas', icon: WalletCards },
-  { label: 'Pinjaman', icon: HandCoins },
-  { label: 'Cicilan', icon: CalendarClock },
-  { label: 'Anggota', icon: Users },
-] as const
+  { label: "Ringkasan", icon: LayoutDashboard },
+  { label: "Kas", icon: WalletCards },
+  { label: "Pinjaman", icon: HandCoins },
+  { label: "Cicilan", icon: CalendarClock },
+  { label: "Anggota", icon: Users },
+] as const;
 const secondaryItems = [
-  { label: 'Notifikasi', icon: Bell },
-  { label: 'Pengaturan', icon: Settings },
-] as const
+  { label: "Notifikasi", icon: Bell },
+  { label: "Pengaturan", icon: Settings },
+] as const;
 
 export function Sidebar({
   user,
@@ -41,33 +41,33 @@ export function Sidebar({
 }: Props) {
   const items = [
     ...mainItems.filter(
-      (item) => user.systemRole !== 'SUPER_ADMIN' || item.label === 'Anggota',
+      (item) => user.systemRole !== "SUPER_ADMIN" || item.label === "Anggota",
     ),
-    ...(user.systemRole === 'SUPER_ADMIN' || user.familyRole === 'ADMIN'
-      ? [{ label: 'Setup Hirarki' as const, icon: GitBranch }]
+    ...(user.systemRole === "SUPER_ADMIN" || user.familyRole === "ADMIN"
+      ? [{ label: "Setup Hirarki" as const, icon: GitBranch }]
       : []),
-    ...(user.systemRole !== 'SUPER_ADMIN'
-      ? [{ label: 'Persetujuan' as const, icon: ListChecks }]
+    ...(user.systemRole !== "SUPER_ADMIN"
+      ? [{ label: "Persetujuan" as const, icon: ListChecks }]
       : []),
-  ]
+  ];
   return (
     <>
       <div className="sidebar-family">
         <span className="avatar coral" aria-hidden="true">
-          {user.systemRole === 'SUPER_ADMIN'
-            ? 'SA'
-            : (user.familyName?.slice(0, 1) ?? 'K')}
+          {user.systemRole === "SUPER_ADMIN"
+            ? "SA"
+            : (user.familyName?.slice(0, 1) ?? "K")}
         </span>
         <div>
           <strong>
-            {user.systemRole === 'SUPER_ADMIN'
-              ? 'Administrasi global'
-              : (user.familyName ?? 'Ruang keluarga')}
+            {user.systemRole === "SUPER_ADMIN"
+              ? "Administrasi global"
+              : (user.familyName ?? "Ruang keluarga")}
           </strong>
           <small>
-            {user.systemRole === 'SUPER_ADMIN'
-              ? 'Seluruh keluarga'
-              : 'Ruang dana bersama'}
+            {user.systemRole === "SUPER_ADMIN"
+              ? "Seluruh keluarga"
+              : "Ruang dana bersama"}
           </small>
         </div>
       </div>
@@ -76,14 +76,14 @@ export function Sidebar({
         {items.map(({ label, icon: Icon }) => (
           <button
             type="button"
-            className={`nav-item${active === label ? ' active' : ''}`}
-            aria-current={active === label ? 'page' : undefined}
+            className={`nav-item${active === label ? " active" : ""}`}
+            aria-current={active === label ? "page" : undefined}
             key={label}
             onClick={() => onNavigate(label)}
           >
             <Icon size={19} aria-hidden="true" />
             <span>{label}</span>
-            {label === 'Cicilan' && unpaidCount > 0 && (
+            {label === "Cicilan" && unpaidCount > 0 && (
               <span
                 className="nav-count"
                 aria-label={`${unpaidCount} cicilan belum lunas`}
@@ -97,18 +97,18 @@ export function Sidebar({
         {secondaryItems.map(({ label, icon: Icon }) => (
           <button
             type="button"
-            className={`nav-item${active === label ? ' active' : ''}`}
-            aria-current={active === label ? 'page' : undefined}
+            className={`nav-item${active === label ? " active" : ""}`}
+            aria-current={active === label ? "page" : undefined}
             key={label}
             onClick={() => onNavigate(label)}
           >
             <Icon size={19} aria-hidden="true" />
             <span>{label}</span>
-            {label === 'Notifikasi' &&
+            {label === "Notifikasi" &&
               unreadCount !== null &&
               unreadCount > 0 && (
                 <span className="nav-count">
-                  {unreadCount > 99 ? '99+' : unreadCount}
+                  {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
           </button>
@@ -116,8 +116,8 @@ export function Sidebar({
       </nav>
       <button
         type="button"
-        className={`sidebar-help${active === 'Panduan' ? ' selected' : ''}`}
-        onClick={() => onNavigate('Panduan')}
+        className={`sidebar-help${active === "Panduan" ? " selected" : ""}`}
+        onClick={() => onNavigate("Panduan")}
       >
         <BookOpen size={21} aria-hidden="true" />
         <span>
@@ -127,5 +127,5 @@ export function Sidebar({
         <ChevronRight size={16} aria-hidden="true" />
       </button>
     </>
-  )
+  );
 }

@@ -1,3 +1,4 @@
+import { validateProductionConfig } from "./production-config";
 import "dotenv/config";
 import { z } from "zod";
 
@@ -18,6 +19,10 @@ const schema = z.object({
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
+  PUBLIC_APP_URL: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().url().optional(),
+  ),
   // smtp (e.g. Brevo) and resend both deliver real email; switch by changing EMAIL_MODE.
   EMAIL_MODE: z
     .enum(["disabled", "simulation", "smtp", "resend"])
@@ -56,3 +61,5 @@ if (env.EMAIL_MODE === "smtp" && (!env.SMTP_USER?.trim() || !env.SMTP_PASSWORD))
   );
 if (env.EMAIL_MODE === "resend" && !env.RESEND_API_KEY)
   throw new Error("RESEND_API_KEY wajib diatur untuk EMAIL_MODE=resend.");
+
+validateProductionConfig(env);

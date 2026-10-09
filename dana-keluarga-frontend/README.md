@@ -1,75 +1,44 @@
-# React + TypeScript + Vite
+# Dana Keluarga Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React, TypeScript, dan Vite. Data aplikasi berasal dari REST API melalui `src/lib/api-client.ts`; aplikasi tidak memuat fixture pengujian.
 
-Currently, two official plugins are available:
+## Menjalankan
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+cp .env.example .env
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Isi `VITE_API_BASE_URL` dengan alamat API. Untuk pengembangan lokal, nilai default adalah `http://localhost:3000/api/v1`; build produksi memakai `/api/v1` bila variabel tidak diisi. Lihat README backend untuk menjalankan API.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Struktur kode
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- `src/App.tsx`: sesi akun, navigasi, dan penghubung halaman.
+- `src/features`: tampilan berdasarkan fitur, seperti kas, pinjaman, cicilan, anggota, dan persetujuan.
+- `src/components`: komponen bersama, formulir, dialog, feedback, dan tata letak.
+- `src/hooks/useFinancialData.ts`: pembacaan data keuangan, penanganan respons yang terlambat, dan pembaruan latar belakang.
+- `src/lib`: API client, format nominal/tanggal, dan label status.
+- `src/types`: kontrak data API dan navigasi.
+- `tests` dan `scripts/audit-ui.cjs`: pengujian terpisah; fixture browser tidak mengakses transaksi database.
 
+Tambahkan halaman melalui komponen fitur dan hubungkan ke App. Gunakan API client bersama agar pembaruan sesi, timeout, dan pesan kesalahan tetap konsisten. Pertahankan status formulir serta halaman yang sedang dibuka ketika data dimuat ulang.
+
+## Pemeriksaan
+
+```bash
+npm run build
+npm run lint
+npm run format:check
+npm test
 ```
+
+Gunakan `npm run format` untuk merapikan kode dengan konfigurasi Prettier bersama di root repository. TypeScript memeriksa variabel dan parameter yang tidak digunakan. Pengujian browser fixture terdokumentasi dalam `../docs/AUDIT_2026-09-18.md`; pengujian tersebut tidak menggantikan E2E browser ke API dan database.
+
+## Sesi dan pemulihan password
+
+Menu akun → Ubah password mengubah password dengan password lama. **Lupa password?** pada halaman masuk mengirim tautan email dan membuka halaman tersendiri (`?view=reset-password&token=...`); token dibaca ke memori lalu dihapus dari URL. Token tidak disimpan pada localStorage. Pemulihan berhasil mengakhiri seluruh sesi akun dan mengembalikan pengguna ke halaman masuk. Tautan harus membuka frontend yang sudah memakai kode baru; API pada deployment tersebut juga harus diperbarui.
+
+Pengelola dana dapat mengoreksi setoran yang dikonfirmasi melalui **Kas → Laporan setoran → Koreksi setoran**. Alasan diwajibkan dan dialog konfirmasi menjelaskan perubahan kas/kontribusi serta bahwa tidak ada transfer bank otomatis.
+
+`scripts/audit-gap-fixes.cjs` memeriksa UI dengan API fixture pada 1440/390/320 px, termasuk refresh hak Maker setelah focus/polling. Jalankan dengan `PLAYWRIGHT_MODULE` menunjuk modul Playwright yang tersedia, `AUDIT_BASE_URL` menunjuk frontend localhost, serta `CHROME_PATH` bila lokasi Chrome berbeda. E2E nyata ke API/PostgreSQL tersedia melalui runner integrasi backend ketika modul Playwright diberikan.

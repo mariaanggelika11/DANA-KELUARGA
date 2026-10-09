@@ -3,6 +3,7 @@ import argon2 from "argon2";
 import { prisma } from "../../config/prisma";
 import { WorkflowError, type WorkflowActor } from "../approvals/approval.rules";
 import type { RegistrationInput } from "./registration.schema";
+import { authorizeFamily } from "../cash/family-access.service";
 
 const publicUser = { id: true, name: true, email: true, phone: true } as const;
 export async function registerFamilyAccess(
@@ -30,15 +31,13 @@ export async function registerFamilyAccess(
   return prisma
     .$transaction(async (tx) => {
       if (!global) {
-        const membership = await tx.familyMember.findUnique({
-          where: {
-            familyId_userId: { familyId: actor.familyId!, userId: actor.sub },
-          },
-        });
-        if (membership?.status !== "ACTIVE" || membership.role !== "ADMIN")
+        await authorizeFamily(tx, actor, ["ADMIN"]);
+      } else {
+        const current = await tx.user.findUnique({ where: { id: actor.sub } });
+        if (!current?.isActive || current.systemRole !== "SUPER_ADMIN")
           throw new WorkflowError(
             "FORBIDDEN",
-            "Hanya admin keluarga aktif yang dapat menambahkan anggota.",
+            "Akses pendaftaran Anda sudah berubah. Muat ulang halaman.",
             403,
           );
       }

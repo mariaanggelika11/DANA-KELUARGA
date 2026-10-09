@@ -1,4 +1,4 @@
-import { lockFamily, postLedger } from "../cash/ledger.service";
+import { postLedger } from "../cash/ledger.service";
 import { Prisma } from "@prisma/client";
 import { wibDay } from "../../utils/calendar";
 import { prisma } from "../../config/prisma";
@@ -9,104 +9,27 @@ import {
   money,
 } from "../notifications/notification.service";
 
-import {
-  WorkflowError,
-  requireOperationalActor,
-  type WorkflowActor,
-} from "../approvals/approval.rules";
+import { WorkflowError, type WorkflowActor } from "../approvals/approval.rules";
 import {
   assertTransferReviewer,
-  isFundManager,
   financialInstallmentStatus,
   type transferSchema,
-  type bankAccountSchema,
 } from "./payment.rules";
 import type { z } from "zod";
+import {
+  authorizeFamily,
+  requireReviewer,
+} from "../cash/family-access.service";
 
-export const bankAccountSelect = {
-  id: true,
-  version: true,
-  bankName: true,
-  accountNumber: true,
-  accountHolder: true,
-} as const;
-async function authorize(
+// Preserve the public payment-service API while each operation has its own module.
+export { bankAccountSelect, saveBankAccount } from "./bank-account.service";
+export { reversePayment } from "./payment-reversal.service";
+
+const authorize = (
   tx: Prisma.TransactionClient,
   actor: WorkflowActor,
   manage = false,
-) {
-  requireOperationalActor(actor, actor.familyId ?? "");
-  await lockFamily(tx, actor.familyId!);
-  const member = await tx.familyMember.findUnique({
-    where: {
-      familyId_userId: { familyId: actor.familyId!, userId: actor.sub },
-    },
-    include: { user: { select: { isActive: true, systemRole: true } } },
-  });
-  if (
-    member?.status !== "ACTIVE" ||
-    !member.user.isActive ||
-    member.user.systemRole === "SUPER_ADMIN"
-  )
-    throw new WorkflowError(
-      "FORBIDDEN",
-      "Keanggotaan keluarga tidak aktif.",
-      403,
-    );
-  const current = {
-    ...actor,
-    familyRole: member.role,
-    systemRole: member.user.systemRole,
-  };
-  if (manage && !isFundManager(current))
-    throw new WorkflowError(
-      "FORBIDDEN",
-      "Hanya pengelola dana keluarga ini dapat memproses pembayaran.",
-      403,
-    );
-  return current;
-}
-export async function saveBankAccount(
-  actor: WorkflowActor,
-  input: z.infer<typeof bankAccountSchema>,
-) {
-  return prisma.$transaction(async (tx) => {
-    await authorize(tx, actor, true);
-    const previous = await tx.familyBankAccount.findFirst({
-      where: { familyId: actor.familyId! },
-      orderBy: { version: "desc" },
-      select: bankAccountSelect,
-    });
-    if ((previous?.version ?? 0) !== input.expectedVersion)
-      throw new WorkflowError(
-        "ACCOUNT_CHANGED",
-        "Rekening sudah berubah. Muat ulang sebelum menyimpan.",
-      );
-    const account = await tx.familyBankAccount.create({
-      data: {
-        familyId: actor.familyId!,
-        createdById: actor.sub,
-        version: input.expectedVersion + 1,
-        bankName: input.bankName,
-        accountNumber: input.accountNumber,
-        accountHolder: input.accountHolder,
-      },
-      select: bankAccountSelect,
-    });
-    await tx.auditLog.create({
-      data: {
-        actorId: actor.sub,
-        familyId: actor.familyId!,
-        action: "FAMILY_BANK_ACCOUNT_CHANGED",
-        entityType: "FamilyBankAccount",
-        entityId: account.id,
-        before: previous ?? Prisma.JsonNull,
-        after: account,
-      },
-    });
-    return account;
-  });
-}
+) => authorizeFamily(tx, actor, manage ? ["TREASURER"] : undefined);
 export async function reportTransfer(
   actor: WorkflowActor,
   loanId: string,
@@ -226,6 +149,7 @@ export async function reportTransfer(
         "DUPLICATE_TRANSFER",
         "Referensi transfer ini sudah dilaporkan pada keluarga ini.",
       );
+    const managers = await requireReviewer(tx, actor.familyId!, actor.sub);
     const payment = await tx.payment.create({
       data: {
         familyId: actor.familyId!,
@@ -261,16 +185,6 @@ export async function reportTransfer(
       installmentId,
       "Pembayaran menunggu pemeriksaan pengelola dana.",
     );
-    const managers = await tx.familyMember.findMany({
-      where: {
-        familyId: actor.familyId!,
-        status: "ACTIVE",
-        role: "TREASURER",
-        userId: { not: actor.sub },
-        user: { isActive: true, systemRole: { not: "SUPER_ADMIN" } },
-      },
-      select: { userId: true },
-    });
     for (const manager of managers)
       await enqueue(tx, {
         eventKey: `PAYMENT_REPORTED:${payment.id}:${manager.userId}`,
@@ -479,3 +393,5 @@ export async function reviewTransfer(
     return result;
   });
 }
+
+// Correct the accounting record only. The actual bank transfer must be investigated separately.
