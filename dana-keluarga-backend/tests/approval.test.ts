@@ -30,6 +30,7 @@ vi.mock("../src/modules/notifications/notification.service", () => ({
 }));
 import {
   actOnRequest,
+  reassignRequest,
   createLoanApproval,
 } from "../src/modules/approvals/approval.service";
 import { saveFamilyPolicy } from "../src/modules/approvals/approval-policy.service";
@@ -391,5 +392,87 @@ describe("sequential approval and disbursement", () => {
     expect(() =>
       assertAssignedActor(dani, makerId, dani, "RELEASER", [dani]),
     ).toThrow();
+  });
+});
+
+describe("audited reassignment of a running request", () => {
+  const replacement = uid(99);
+  const admin = { ...actor(uid(98)), familyRole: "ADMIN" };
+  const change = {
+    userId: replacement,
+    expectedAssignedUserId: dani,
+    reason: "Petugas berhalangan sementara",
+  };
+  it("requires a family admin and never grants super admins operational access", async () => {
+    await expect(
+      reassignRequest(actor(), requestId, change),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      reassignRequest(
+        { ...admin, systemRole: "SUPER_ADMIN" },
+        requestId,
+        change,
+      ),
+    ).rejects.toMatchObject({ code: "PLATFORM_ROLE_ONLY" });
+    expect(db.approvalStep.update).not.toHaveBeenCalled();
+  });
+  it.each([makerId, dani, danang, releaser])(
+    "rejects self approval and overlapping duties for %s",
+    async (userId) => {
+      await expect(
+        reassignRequest(admin, requestId, { ...change, userId }),
+      ).rejects.toMatchObject({ code: "INVALID_REPLACEMENT" });
+      expect(db.approvalStep.update).not.toHaveBeenCalled();
+    },
+  );
+  it("rejects stale assignment, completed request, and inactive replacement", async () => {
+    await expect(
+      reassignRequest(admin, requestId, {
+        ...change,
+        expectedAssignedUserId: replacement,
+      }),
+    ).rejects.toMatchObject({ code: "ASSIGNMENT_CHANGED" });
+    db.approvalRequest.findUniqueOrThrow.mockResolvedValueOnce({
+      ...snapshot(),
+      status: "RELEASED",
+    });
+    await expect(
+      reassignRequest(admin, requestId, change),
+    ).rejects.toMatchObject({ code: "REQUEST_ALREADY_PROCESSED" });
+    db.familyMember.findUnique.mockResolvedValue(null);
+    await expect(
+      reassignRequest(admin, requestId, change),
+    ).rejects.toMatchObject({ code: "NOT_ACTIVE_MEMBER" });
+    expect(db.approvalStep.update).not.toHaveBeenCalled();
+  });
+  it("moves only the current step, audits the reason, and notifies the replacement", async () => {
+    db.familyMember.findUnique.mockResolvedValue({
+      status: "ACTIVE",
+      user: { name: "Petugas pengganti", isActive: true, systemRole: "USER" },
+    });
+    await reassignRequest(admin, requestId, change);
+    expect(db.approvalStep.update).toHaveBeenCalledExactlyOnceWith({
+      where: { id: uid(11) },
+      data: { assignedUserId: replacement },
+    });
+    expect(db.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "APPROVAL_STEP_REASSIGNED",
+          before: { step: 1, assignedUserId: dani },
+          after: expect.objectContaining({
+            assignedUserId: replacement,
+            reason: change.reason,
+          }),
+        }),
+      }),
+    );
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: replacement, familyId }),
+      }),
+    );
+    expect(db.loan.update).not.toHaveBeenCalled();
+    expect(db.ledgerEntry.create).not.toHaveBeenCalled();
   });
 });

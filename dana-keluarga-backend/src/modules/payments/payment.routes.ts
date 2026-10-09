@@ -1,39 +1,33 @@
-import { Prisma } from "@prisma/client";
-import { amountSchema } from "../../utils/money";
-import crypto from "node:crypto";
 import { Router } from "express";
+import { z } from "zod";
 import { prisma } from "../../config/prisma";
-import { env } from "../../config/env";
+import { requireAuth, type AuthRequest } from "../../middleware/auth";
 import {
-  requireAuth,
-  requireRole,
-  type AuthRequest,
-} from "../../middleware/auth";
-import { requireOperationalActor } from "../approvals/approval.rules";
-import { settleSandboxPayment } from "./payment.service";
+  WorkflowError,
+  requireOperationalActor,
+} from "../approvals/approval.rules";
+import {
+  bankAccountSchema,
+  transferSchema,
+  reviewSchema,
+  isFundManager,
+  installmentPaymentStatus,
+} from "./payment.rules";
+import {
+  bankAccountSelect,
+  saveBankAccount,
+  reportTransfer,
+  reviewTransfer,
+} from "./payment.service";
 
 export const paymentRouter = Router();
-const canManage = (req: AuthRequest) =>
-  req.auth?.systemRole === "SUPER_ADMIN" ||
-  ["ADMIN", "TREASURER"].includes(req.auth?.familyRole ?? "");
-const scope = (req: AuthRequest) =>
-  req.auth!.systemRole === "SUPER_ADMIN"
-    ? {}
-    : {
-        familyId: req.auth!.familyId ?? "00000000-0000-0000-0000-000000000000",
-        ...(canManage(req) ? {} : { borrowerId: req.auth!.sub }),
-      };
-const simulationAvailable = () =>
-  env.NODE_ENV !== "production" && env.PAYMENT_PROVIDER === "sandbox";
-
-// No unauthenticated callback may mark a payment as paid in this simulation release.
+// Retired provider callbacks never mutate payments, even when old clients retry.
 paymentRouter.post("/webhooks/:provider", (_req, res) =>
-  res.status(503).json({
+  res.status(410).json({
     success: false,
     error: {
-      code: "PROVIDER_NOT_CONFIGURED",
-      message:
-        "Integrasi dan verifikasi callback payment gateway belum diaktifkan",
+      code: "MANUAL_TRANSFER_ONLY",
+      message: "Pembayaran menggunakan transfer bank manual.",
     },
   }),
 );
@@ -41,16 +35,86 @@ paymentRouter.use(requireAuth, (req: AuthRequest, _res, next) => {
   requireOperationalActor(req.auth!, req.auth!.familyId ?? "");
   next();
 });
+const canReadFamily = (req: AuthRequest) =>
+  ["ADMIN", "TREASURER"].includes(req.auth!.familyRole ?? "");
+const scope = (req: AuthRequest) => ({
+  familyId: req.auth!.familyId!,
+  ...(canReadFamily(req) ? {} : { borrowerId: req.auth!.sub }),
+});
 
+paymentRouter.get("/bank-account", async (req: AuthRequest, res) => {
+  const account = await prisma.familyBankAccount.findFirst({
+    where: { familyId: req.auth!.familyId! },
+    orderBy: { version: "desc" },
+    select: bankAccountSelect,
+  });
+  res.json({
+    success: true,
+    data: { account, canManage: isFundManager(req.auth!) },
+  });
+});
+paymentRouter.put("/bank-account", async (req: AuthRequest, res) => {
+  const account = await saveBankAccount(
+    req.auth!,
+    bankAccountSchema.parse(req.body),
+  );
+  res.json({
+    success: true,
+    data: account,
+    message: "Rekening tujuan keluarga berhasil disimpan.",
+  });
+});
+paymentRouter.get("/pending", async (req: AuthRequest, res) => {
+  if (!isFundManager(req.auth!))
+    throw new WorkflowError(
+      "FORBIDDEN",
+      "Hanya pengelola dana dapat membuka antrean pembayaran.",
+      403,
+    );
+  const page = z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100000)
+    .default(1)
+    .parse(req.query.page);
+  const where = {
+    familyId: req.auth!.familyId!,
+    provider: "MANUAL" as const,
+    status: "PENDING" as const,
+    bankAccountId: { not: null },
+    payerId: { not: req.auth!.sub },
+    loan: { borrowerId: { not: req.auth!.sub } },
+  };
+  const [items, total] = await prisma.$transaction([
+    prisma.payment.findMany({
+      where,
+      include: {
+        bankAccount: { select: bankAccountSelect },
+        loan: {
+          select: { borrower: { select: { name: true } }, purpose: true },
+        },
+        installment: { select: { installmentNumber: true } },
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      skip: (page - 1) * 20,
+      take: 20,
+    }),
+    prisma.payment.count({ where }),
+  ]);
+  res.json({ success: true, data: { items, total, page } });
+});
 paymentRouter.get("/installments/:id", async (req: AuthRequest, res) => {
+  const id = z.string().uuid().parse(req.params.id);
   const installment = await prisma.loanInstallment.findFirst({
-    where: { id: String(req.params.id), loan: scope(req) },
+    where: { id, loan: scope(req) },
     include: {
       loan: {
         select: {
           id: true,
           purpose: true,
           status: true,
+          borrowerId: true,
           borrower: { select: { name: true } },
         },
       },
@@ -61,136 +125,86 @@ paymentRouter.get("/installments/:id", async (req: AuthRequest, res) => {
           amount: true,
           status: true,
           provider: true,
-          expiresAt: true,
           paidAt: true,
           createdAt: true,
+          transferredAt: true,
+          transferReference: true,
+          transferNotes: true,
+          reviewedAt: true,
+          reviewNotes: true,
+          bankAccount: { select: bankAccountSelect },
+          reviewedBy: { select: { name: true } },
         },
       },
     },
   });
   if (!installment)
-    return res.status(404).json({
-      error: { message: "Cicilan tidak ditemukan atau tidak dapat diakses" },
-    });
-  // Expiry is derived on reads; create/settlement also enforce it in the database.
-  const payments = installment.payments.map((payment) => ({
-    ...payment,
-    status:
-      payment.status === "PENDING" &&
-      payment.expiresAt &&
-      payment.expiresAt <= new Date()
-        ? "EXPIRED"
-        : payment.status,
-  }));
+    throw new WorkflowError(
+      "INSTALLMENT_NOT_FOUND",
+      "Cicilan tidak ditemukan atau tidak dapat diakses.",
+      404,
+    );
+  const account = await prisma.familyBankAccount.findFirst({
+    where: { familyId: req.auth!.familyId! },
+    orderBy: { version: "desc" },
+    select: bankAccountSelect,
+  });
+  const own = installment.loan.borrowerId === req.auth!.sub;
+  const paymentStatus = installmentPaymentStatus(installment);
   res.json({
     success: true,
     data: {
       ...installment,
-      payments,
-      simulationAvailable: simulationAvailable(),
-      canSimulate: simulationAvailable() && canManage(req),
+      paymentStatus,
+      bankAccount: account,
+      isBorrower: own,
+      canReport:
+        own &&
+        Boolean(account) &&
+        installment.loan.status === "ACTIVE" &&
+        paymentStatus !== "PENDING_REVIEW" &&
+        installment.remainingAmount.gt(0),
+      canReview:
+        isFundManager(req.auth!) && !own && paymentStatus === "PENDING_REVIEW",
+      requiresIndependentReviewer:
+        isFundManager(req.auth!) &&
+        own &&
+        installment.loan.status === "ACTIVE" &&
+        installment.remainingAmount.gt(0),
     },
   });
 });
-
 paymentRouter.post(
   "/loans/:loanId/installments/:installmentId",
   async (req: AuthRequest, res) => {
-    if (!simulationAvailable())
-      return res.status(503).json({
-        error: {
-          message:
-            "Pembayaran nyata belum tersedia. Simulasi hanya tersedia di lingkungan pengembangan dengan provider sandbox.",
-        },
-      });
-    const loanId = String(req.params.loanId);
-    const installmentId = String(req.params.installmentId);
-    const item = await prisma.loanInstallment.findFirst({
-      where: { id: installmentId, loanId, loan: scope(req) },
-    });
-    if (!item)
-      return res
-        .status(404)
-        .json({ error: { message: "Cicilan tidak ditemukan" } });
-    const payment = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Loan" WHERE id = ${loanId}::uuid FOR UPDATE`;
-      const installment = await tx.loanInstallment.findUniqueOrThrow({
-        where: { id: installmentId },
-        include: { loan: true },
-      });
-      if (
-        installment.loan.status !== "ACTIVE" ||
-        installment.status === "PAID" ||
-        installment.remainingAmount.lte(0)
-      )
-        throw new Error("PAYMENT_CONFLICT");
-      await tx.payment.updateMany({
-        where: {
-          installmentId,
-          status: "PENDING",
-          expiresAt: { lte: new Date() },
-        },
-        data: { status: "EXPIRED" },
-      });
-      const amount =
-        req.body?.amount === undefined
-          ? installment.remainingAmount
-          : new Prisma.Decimal(amountSchema.parse(req.body.amount));
-      if (amount.gt(installment.remainingAmount))
-        throw new Error("PAYMENT_CONFLICT");
-      const existing = await tx.payment.findFirst({
-        where: { installmentId, status: "PENDING" },
-      });
-      if (existing) {
-        if (!existing.amount.equals(amount))
-          throw new Error("PAYMENT_CONFLICT");
-        return existing;
-      }
-      return tx.payment.create({
-        data: {
-          familyId: installment.loan.familyId,
-          loanId,
-          installmentId,
-          payerId: installment.loan.borrowerId,
-          amount,
-          provider: "SANDBOX",
-          externalId: `sandbox-${crypto.randomUUID()}`,
-          expiresAt: new Date(Date.now() + 30 * 60000),
-        },
-      });
-    });
+    const loanId = z.string().uuid().parse(req.params.loanId);
+    const installmentId = z.string().uuid().parse(req.params.installmentId);
+    const payment = await reportTransfer(
+      req.auth!,
+      loanId,
+      installmentId,
+      transferSchema.parse(req.body),
+    );
     res.json({
       success: true,
       data: payment,
-      message: "Pembayaran simulasi dibuat. Tidak ada QRIS atau uang nyata.",
+      message:
+        "Laporan transfer dikirim. Cicilan diperbarui setelah pengelola dana mengonfirmasi uang masuk.",
     });
   },
 );
-
-paymentRouter.post(
-  "/:id/simulate-success",
-  requireRole("ADMIN", "TREASURER"),
-  async (req: AuthRequest, res) => {
-    if (!simulationAvailable())
-      return res
-        .status(404)
-        .json({ error: { message: "Simulasi pembayaran tidak tersedia" } });
-    const payment = await prisma.payment.findFirst({
-      where: {
-        id: String(req.params.id),
-        loan: scope(req),
-        provider: "SANDBOX",
-      },
-    });
-    if (!payment)
-      return res
-        .status(404)
-        .json({ error: { message: "Pembayaran tidak ditemukan" } });
-    const result = await settleSandboxPayment(payment.id, req.auth!.sub);
+for (const action of ["confirm", "reject"] as const) {
+  paymentRouter.post(`/:id/${action}`, async (req: AuthRequest, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    const { notes } = reviewSchema.parse(req.body);
+    const payment = await reviewTransfer(req.auth!, id, action, notes);
     res.json({
       success: true,
-      data: result,
-      message: "Pembayaran simulasi berhasil dicatat",
+      data: payment,
+      message:
+        action === "confirm"
+          ? "Dana masuk dikonfirmasi. Kas dan cicilan sudah diperbarui."
+          : "Laporan transfer ditolak. Alasan telah disampaikan kepada peminjam.",
     });
-  },
-);
+  });
+}

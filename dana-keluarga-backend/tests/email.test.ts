@@ -140,6 +140,45 @@ describe("durable email delivery", () => {
     await processEmails();
     expect(db.user.findUnique).not.toHaveBeenCalled();
   });
+  it("does not mark real delivery as simulated when the sender is missing", async () => {
+    env.EMAIL_MODE = "smtp";
+    await expect(processEmails(new Date(), null)).rejects.toMatchObject({
+      permanent: true,
+    });
+    expect(db.emailMessage.update).not.toHaveBeenCalled();
+  });
+  it("cancels a queued reminder while the transfer is awaiting review", async () => {
+    db.emailMessage.findMany.mockResolvedValue([
+      { ...message, eventKey: "INSTALLMENT_DUE:installment:H" },
+    ]);
+    db.loanInstallment.findUnique.mockResolvedValue({
+      status: "UNPAID",
+      loan: { status: "ACTIVE" },
+      payments: [{ id: "pending-payment" }],
+    });
+    const send = vi.fn();
+    await processEmails(new Date(), send);
+    expect(send).not.toHaveBeenCalled();
+    expect(lastUpdate()).toMatchObject({
+      status: "CANCELLED",
+      lastError: "Pembayaran menunggu pemeriksaan pengelola dana.",
+    });
+  });
+  it("scopes a real email check to its own outbox record", async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    await processEmails(new Date(), send, { messageId: "test-message" });
+    expect(db.emailMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "test-message",
+          status: "QUEUED",
+        }),
+      }),
+    );
+    expect(db.emailMessage.updateMany.mock.calls[0][0].where.id).toBe(
+      "test-message",
+    );
+  });
 });
 
 describe("email scope", () => {
@@ -165,6 +204,8 @@ describe("email scope", () => {
       "INSTALLMENT_DUE",
       "LOAN_REQUESTED",
       "LOAN_APPROVED",
+      "PAYMENT_REPORTED",
+      "PAYMENT_REJECTED",
       undefined,
     ])
       await queueEmail(tx, { ...data, eventKey: String(kind) }, kind);
@@ -172,7 +213,14 @@ describe("email scope", () => {
       db.emailMessage.createMany.mock.calls.map(
         ([args]) => args.data[0].status,
       ),
-    ).toEqual([undefined, undefined, undefined, undefined]);
+    ).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 });
 

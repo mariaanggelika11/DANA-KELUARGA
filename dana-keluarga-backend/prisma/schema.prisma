@@ -102,6 +102,8 @@ model User {
   approvalRequests ApprovalRequest[] @relation("RequestMaker")
   approvalSteps ApprovalStep[]
   approvalActions ApprovalAction[]
+  reviewedPayments Payment[] @relation("PaymentReviewer")
+  createdBankAccounts FamilyBankAccount[] @relation("BankAccountCreator")
 }
 
 model Family {
@@ -120,6 +122,7 @@ model Family {
   ledgerEntries LedgerEntry[]
   goals FundGoal[]
   payments Payment[]
+  bankAccounts FamilyBankAccount[]
   notifications Notification[]
   auditLogs AuditLog[]
   approvalPolicies ApprovalPolicy[]
@@ -229,6 +232,15 @@ model Payment {
   expiresAt DateTime?
   paidAt DateTime?
   rawCallback Json?
+  bankAccountId String? @db.Uuid
+  transferReference String?
+  transferredAt DateTime?
+  transferNotes String?
+  reviewedById String? @db.Uuid
+  reviewedAt DateTime?
+  reviewNotes String?
+  bankAccount FamilyBankAccount? @relation(fields: [bankAccountId, familyId], references: [id, familyId], onDelete: Restrict)
+  reviewedBy User? @relation("PaymentReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   family Family @relation(fields: [familyId], references: [id])
@@ -237,6 +249,23 @@ model Payment {
   @@index([loanId])
   @@index([installmentId])
   @@index([status])
+}
+
+// Append-only versions preserve the destination used for each reported transfer.
+model FamilyBankAccount {
+  id String @id @default(uuid()) @db.Uuid
+  familyId String @db.Uuid
+  version Int
+  bankName String
+  accountNumber String
+  accountHolder String
+  createdById String @db.Uuid
+  createdAt DateTime @default(now())
+  family Family @relation(fields: [familyId], references: [id])
+  createdBy User @relation("BankAccountCreator", fields: [createdById], references: [id])
+  payments Payment[]
+  @@unique([familyId, version])
+  @@unique([id, familyId])
 }
 
 model FundGoal {

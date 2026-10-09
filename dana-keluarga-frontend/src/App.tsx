@@ -1,3 +1,7 @@
+import { BankAccountSettings } from "./components/BankAccountSettings";
+import { PendingTransfers } from "./components/PendingTransfers";
+import { version as appVersion } from "../package.json";
+import { Pagination } from "./components/Pagination";
 import { FundTransactionDialog } from "./features/cash/FundTransactionDialog";
 import { LoadingState } from "./components/LoadingState";
 import { EditMemberRole } from "./features/members/EditMemberRole";
@@ -5,7 +9,13 @@ import { SearchableSelect } from "./components/SearchableSelect";
 import { FamilyCash } from "./features/cash/FamilyCash";
 import { CurrencyInput } from "./components/CurrencyInput";
 import { currencyError } from "./lib/currency";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   ChevronDown,
   Pencil,
@@ -53,6 +63,7 @@ const loanStatus: Record<string, string> = {
   CANCELLED: "Dibatalkan",
 };
 const installmentStatus: Record<string, string> = {
+  PENDING_REVIEW: "Menunggu pemeriksaan",
   UNPAID: "Belum dibayar",
   PARTIAL: "Sebagian dibayar",
   PAID: "Lunas",
@@ -80,6 +91,7 @@ type Installment = {
   paidAmount: string | number;
   remainingAmount: string | number;
   status: string;
+  paymentStatus?: string;
 };
 type Loan = {
   id: string;
@@ -225,6 +237,9 @@ function App() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState(true);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerTotal, setLedgerTotal] = useState(0);
+  const ledgerLoadSequence = useRef(0);
   const ledgerKey = useRef(crypto.randomUUID());
   const [ledgerFormOpen, setLedgerFormOpen] = useState(false);
   const [ledgerForm, setLedgerForm] = useState({
@@ -318,6 +333,8 @@ function App() {
       setMembers([]);
       setLoans([]);
       setLedger([]);
+      setLedgerPage(1);
+      setLedgerTotal(0);
       setSummary(null);
       setLedgerFormOpen(false);
       setMemberFormOpen(false);
@@ -363,21 +380,33 @@ function App() {
       setLoansLoading(false);
     }
   };
-  const loadLedger = async () => {
-    setLedgerLoading(true);
-    setLedgerError("");
-    try {
-      setLedger((await api<{ data: LedgerEntry[] }>("/ledger")).data);
-    } catch (error) {
-      setLedgerError(
-        error instanceof Error
-          ? error.message
-          : "Catatan kas belum dapat dimuat.",
-      );
-    } finally {
-      setLedgerLoading(false);
-    }
-  };
+  const loadLedger = useCallback(
+    async (page = ledgerPage) => {
+      const sequence = ++ledgerLoadSequence.current;
+      setLedgerLoading(true);
+      setLedgerError("");
+      try {
+        const payload = await api<{
+          data: LedgerEntry[];
+          pagination: { total: number };
+        }>(`/ledger?page=${page}`);
+        if (sequence === ledgerLoadSequence.current) {
+          setLedger(payload.data);
+          setLedgerTotal(payload.pagination.total);
+        }
+      } catch (error) {
+        if (sequence === ledgerLoadSequence.current)
+          setLedgerError(
+            error instanceof Error
+              ? error.message
+              : "Catatan kas belum dapat dimuat.",
+          );
+      } finally {
+        if (sequence === ledgerLoadSequence.current) setLedgerLoading(false);
+      }
+    },
+    [ledgerPage, setLedgerLoading, setLedger, setLedgerTotal, setLedgerError],
+  );
   useEffect(() => {
     if (!user) return;
     const controller = new AbortController();
@@ -442,25 +471,6 @@ function App() {
         )
           setMembersLoading(false);
       });
-    if (user.systemRole !== "SUPER_ADMIN")
-      api<{ data: LedgerEntry[] }>("/ledger", options)
-        .then((payload) => {
-          if (!controller.signal.aborted) {
-            setLedger(payload.data);
-            setLedgerError("");
-          }
-        })
-        .catch((error: unknown) => {
-          if (!controller.signal.aborted)
-            setLedgerError(
-              error instanceof Error
-                ? error.message
-                : "Catatan kas belum dapat dimuat.",
-            );
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setLedgerLoading(false);
-        });
     if (user.systemRole === "SUPER_ADMIN")
       api<{ data: Family[] }>("/management/families", options)
         .then((payload) => {
@@ -482,6 +492,12 @@ function App() {
         });
     return () => controller.abort();
   }, [user]);
+  useEffect(() => {
+    if (user && user.systemRole !== "SUPER_ADMIN") void loadLedger(ledgerPage);
+    return () => {
+      ledgerLoadSequence.current += 1;
+    };
+  }, [user, ledgerPage, loadLedger]);
   const login = async (event: FormEvent) => {
     event.preventDefault();
     if (loginLoading) return;
@@ -533,6 +549,8 @@ function App() {
     setUser(null);
     setLoans([]);
     setLedger([]);
+    setLedgerPage(1);
+    setLedgerTotal(0);
     setSummary(null);
     setMembers([]);
     setNotice(null);
@@ -600,7 +618,7 @@ function App() {
   const isFamilyAdmin = user?.familyRole === "ADMIN";
   const isTreasurer = user?.familyRole === "TREASURER";
   const canManageMembers = isSuperAdmin || isFamilyAdmin;
-  const canManageLoans = !isSuperAdmin && isFamilyAdmin;
+  const canManageLoans = !isSuperAdmin && (isFamilyAdmin || isTreasurer);
   const canRequestLoan =
     user?.systemRole === "USER" && loanPermissions.data?.canCreateLoan === true;
   const canManageLedger = !isSuperAdmin && (isFamilyAdmin || isTreasurer);
@@ -774,7 +792,7 @@ function App() {
                 : active === "Panduan"
                   ? "Panduan Dana Keluarga."
                   : active === "Pengaturan"
-                    ? "Pengaturan pemberitahuan."
+                    ? "Pengaturan keluarga."
                     : active === "Notifikasi"
                       ? "Pemberitahuan keluarga."
                       : active === "Anggota"
@@ -795,7 +813,7 @@ function App() {
                 : active === "Panduan"
                   ? "Kenali alur aplikasi dan langkah yang sesuai dengan peran Anda."
                   : active === "Pengaturan"
-                    ? "Lihat email penerima dan riwayat pengiriman pemberitahuan."
+                    ? "Kelola rekening tujuan pembayaran dan pemberitahuan keluarga."
                     : active === "Notifikasi"
                       ? "Baca kabar terbaru yang terkait dengan akun Anda."
                       : active === "Anggota"
@@ -926,7 +944,14 @@ function App() {
           onOpenInstallment={openPayment}
         />
       )}
-      {active === "Pengaturan" && <EmailSettings key={user.id} />}
+      {active === "Pengaturan" && (
+        <>
+          {!isSuperAdmin && (
+            <BankAccountSettings key={`bank:${user.id}:${user.familyId}`} />
+          )}
+          <EmailSettings key={user.id} />
+        </>
+      )}
       {active === "Panduan" && <HelpGuide user={user} onNavigate={navigate} />}
       {active === "Cicilan" && paymentInstallmentId && (
         <InstallmentPayment
@@ -936,6 +961,16 @@ function App() {
           onSettled={refreshFinancials}
         />
       )}
+      {active === "Cicilan" &&
+        !paymentInstallmentId &&
+        isTreasurer &&
+        !isSuperAdmin && (
+          <PendingTransfers
+            key={`${user.id}:${user.familyId}`}
+            onOpen={openPayment}
+            revision={cashRevision}
+          />
+        )}
       {active === "Cicilan" && !paymentInstallmentId && (
         <section className="panel loan-list installment-list">
           <div className="panel-heading">
@@ -1043,10 +1078,12 @@ function App() {
                                   </small>
                                   <b>{rupiah(installment.remainingAmount)}</b>
                                   <span
-                                    className={`status ${installment.status.toLowerCase()}`}
+                                    className={`status ${(installment.paymentStatus ?? installment.status).toLowerCase()}`}
                                   >
-                                    {installmentStatus[installment.status] ??
-                                      installment.status}
+                                    {installmentStatus[
+                                      installment.paymentStatus ??
+                                        installment.status
+                                    ] ?? installment.status}
                                   </span>
                                   <button
                                     className="secondary-button"
@@ -1196,8 +1233,10 @@ function App() {
                     <span className={`status ${member.status.toLowerCase()}`}>
                       {member.status === "ACTIVE" ? "Aktif" : "Tidak aktif"}
                     </span>
-                    <small className="joined-date">
-                      {date.format(new Date(member.joinedAt))}
+                    <div className="member-row-actions">
+                      <small className="joined-date">
+                        {date.format(new Date(member.joinedAt))}
+                      </small>
                       {canManageMembers &&
                         member.user.systemRole !== "SUPER_ADMIN" && (
                           <button
@@ -1206,10 +1245,10 @@ function App() {
                             aria-label={`Edit peran ${member.user.name}`}
                             onClick={() => setEditingMember(member)}
                           >
-                            <Pencil size={16} aria-hidden="true" /> Edit peran
+                            <Pencil size={14} aria-hidden="true" /> Edit peran
                           </button>
                         )}
-                    </small>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1255,7 +1294,7 @@ function App() {
               <h2>Arus kas keluarga</h2>
               <p className="panel-description">
                 Catat pemasukan dan pengeluaran agar saldo keluarga tetap
-                akurat. Menampilkan hingga 100 catatan terbaru.
+                akurat. Telusuri riwayat melalui navigasi halaman.
               </p>
             </div>
             {canManageLedger && (
@@ -1273,7 +1312,10 @@ function App() {
           ) : ledgerError ? (
             <Feedback tone="error">
               {ledgerError}
-              <button className="secondary-button" onClick={loadLedger}>
+              <button
+                className="secondary-button"
+                onClick={() => void loadLedger()}
+              >
                 Coba lagi
               </button>
             </Feedback>
@@ -1299,9 +1341,13 @@ function App() {
                   <div>
                     <strong>
                       {entry.type === "LOAN_DISBURSEMENT" &&
-                      /^Pencairan pinjaman [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entry.description)
+                      /^Pencairan pinjaman [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                        entry.description,
+                      )
                         ? (() => {
-                            const loan = loans.find((item) => item.id === entry.referenceId);
+                            const loan = loans.find(
+                              (item) => item.id === entry.referenceId,
+                            );
                             return loan
                               ? `Pencairan pinjaman untuk ${loan.borrower.name}`
                               : "Pencairan pinjaman";
@@ -1335,6 +1381,16 @@ function App() {
               ))}
             </div>
           )}
+          <Pagination
+            page={ledgerPage}
+            total={ledgerTotal}
+            pageSize={20}
+            disabled={ledgerLoading}
+            onChange={(page) => {
+              setLedgerLoading(true);
+              setLedgerPage(page);
+            }}
+          />
         </section>
       )}
       {active === "Ringkasan" && (
@@ -1359,7 +1415,7 @@ function App() {
           <section className="metrics">
             <article className="metric primary-metric">
               <p>SALDO BERSAMA</p>
-              <small>Saldo tersedia</small>
+              <small>Saldo kas keluarga</small>
               <strong>
                 {summary ? rupiah(summary.balance) : "Belum tersedia"}
               </strong>
@@ -1542,7 +1598,8 @@ function App() {
         />
       )}
       <footer>
-        © 2026 Dana Keluarga <span>◈ Data ruang ini hanya untuk keluarga</span>
+        © 2026 Dana Keluarga · v{appVersion}{" "}
+        <span>◈ Data ruang ini hanya untuk keluarga</span>
       </footer>
     </AppShell>
   );

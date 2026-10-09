@@ -20,6 +20,7 @@
 .status.failed, .status.overdue { background: #fbe7e5; color: #8d2626; }
 .status.queued, .status.processing { background: #fff1d9; color: #754d13; }
 .status.cancelled, .status.expired { background: #efedef; color: #5b555e; }
+.status.pending_review, .status.pending { background: #fff1d9; color: #754d13; }
 .workflow-panel button:disabled { opacity: .55; cursor: not-allowed; }
 .installment-detail-row .secondary-button { justify-self: start; }
 @media (max-width: 550px) { .workflow-details { grid-template-columns: 1fr; } }

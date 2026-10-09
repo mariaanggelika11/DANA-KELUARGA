@@ -12,7 +12,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
-    "test:cash:integration": "node scripts/run-family-cash-check.cjs"
+    "test:cash:integration": "node scripts/run-family-cash-check.cjs",
+    "email:check": "tsx scripts/check-email.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

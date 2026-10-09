@@ -1,3 +1,4 @@
+import { Pagination } from "../../components/Pagination";
 import { useEffect, useState } from "react";
 import { LoadingState } from "../../components/LoadingState";
 import { Feedback } from "../../components/Feedback";
@@ -15,6 +16,7 @@ type Contribution = {
   reserved: string;
 };
 type Summary = {
+  requestsTotal: number;
   balance: string;
   reserved: string;
   availableCash: string;
@@ -53,14 +55,15 @@ export function FamilyCash({
   const [data, setData] = useState<Summary | null>(null);
   const [loadedVersion, setLoadedVersion] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [page, setPage] = useState(1);
   const [mode, setMode] = useState<FundIntent | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const requestVersion = `${refresh}:${revision}`;
+  const requestVersion = `${refresh}:${revision}:${page}`;
   const loading = loadedVersion !== requestVersion;
   useEffect(() => {
     const controller = new AbortController();
-    api<{ data: Summary }>("/cash", { signal: controller.signal })
+    api<{ data: Summary }>(`/cash?page=${page}`, { signal: controller.signal })
       .then((result) => {
         if (!controller.signal.aborted) {
           setData(result.data);
@@ -74,7 +77,7 @@ export function FamilyCash({
         if (!controller.signal.aborted) setLoadedVersion(requestVersion);
       });
     return () => controller.abort();
-  }, [refresh, revision, requestVersion]);
+  }, [refresh, revision, requestVersion, page]);
   return (
     <section className="panel workflow-panel">
       <div className="panel-heading">
@@ -159,6 +162,13 @@ export function FamilyCash({
               </small>
             </article>
           ))}
+          <Pagination
+            page={page}
+            total={data.requestsTotal}
+            pageSize={20}
+            disabled={loading}
+            onChange={setPage}
+          />
         </>
       )}
       {mode && (

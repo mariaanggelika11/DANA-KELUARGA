@@ -32,9 +32,6 @@ const schema = z.object({
   // Deprecated alias of EMAIL_FROM, kept so existing .env files keep working.
   SMTP_FROM: optionalString,
   RESEND_API_KEY: optionalString,
-  PAYMENT_PROVIDER: z.enum(["sandbox", "midtrans"]).default("sandbox"),
-  MIDTRANS_SERVER_KEY: z.string().optional(),
-  MIDTRANS_IS_PRODUCTION: booleanEnv.default(false),
   REMINDER_HOUR_WIB: z.coerce.number().int().min(0).max(23).default(9),
   NOTIFICATION_POLL_MS: z.coerce.number().int().min(1000).default(30000),
 });
@@ -53,5 +50,9 @@ if (realEmail && env.EMAIL_FROM.includes("@localhost"))
   throw new Error("EMAIL_FROM wajib diatur untuk pengiriman email nyata.");
 if (env.EMAIL_MODE === "smtp" && !env.SMTP_HOST)
   throw new Error("SMTP_HOST wajib diatur untuk EMAIL_MODE=smtp.");
+if (env.EMAIL_MODE === "smtp" && (!env.SMTP_USER?.trim() || !env.SMTP_PASSWORD))
+  throw new Error(
+    "SMTP_USER dan SMTP_PASSWORD wajib diatur untuk EMAIL_MODE=smtp.",
+  );
 if (env.EMAIL_MODE === "resend" && !env.RESEND_API_KEY)
   throw new Error("RESEND_API_KEY wajib diatur untuk EMAIL_MODE=resend.");

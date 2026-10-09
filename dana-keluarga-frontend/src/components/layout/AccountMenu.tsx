@@ -93,7 +93,7 @@ export function AccountMenu({ user, onNavigate, onLogout }: Props) {
             }}
           >
             <Settings size={17} aria-hidden="true" />
-            Pengaturan notifikasi
+            Pengaturan
           </button>
           <button
             type="button"

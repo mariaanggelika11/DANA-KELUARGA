@@ -26,7 +26,7 @@ export class EmailDeliveryError extends Error {
   }
 }
 
-// Only billing, loan requests and loan decisions are emailed; other events stay in the in-app inbox.
+// Billing (including transfer reports/rejections), loan requests and decisions are emailed.
 const INBOX_ONLY_KINDS = new Set(["CONTRIBUTION", "WITHDRAWAL"]);
 
 export async function queueEmail(
@@ -138,17 +138,22 @@ export const defaultSender = (): EmailSender | null =>
 export async function processEmails(
   now = new Date(),
   sender: EmailSender | null = defaultSender(),
+  options: { messageId?: string } = {},
 ) {
   if (env.EMAIL_MODE === "disabled") return;
+  if ((env.EMAIL_MODE === "smtp" || env.EMAIL_MODE === "resend") && !sender)
+    throw new EmailDeliveryError("Penyedia email nyata belum tersedia.", true);
+  const scope = options.messageId ? { id: options.messageId } : {};
   await prisma.emailMessage.updateMany({
     where: {
+      ...scope,
       status: "PROCESSING",
       lockedAt: { lt: new Date(now.getTime() - 300000) },
     },
     data: { status: "QUEUED", lockedAt: null },
   });
   const messages = await prisma.emailMessage.findMany({
-    where: { status: "QUEUED", nextAttemptAt: { lte: now } },
+    where: { ...scope, status: "QUEUED", nextAttemptAt: { lte: now } },
     take: 25,
     orderBy: { createdAt: "asc" },
   });
@@ -187,12 +192,24 @@ export async function processEmails(
         const installmentId = message.eventKey.split(":")[1];
         const current = await prisma.loanInstallment.findUnique({
           where: { id: installmentId },
-          include: { loan: { include: { installments: true } } },
+          include: {
+            loan: { include: { installments: true } },
+            payments: {
+              where: {
+                provider: "MANUAL",
+                status: "PENDING",
+                bankAccountId: { not: null },
+              },
+              select: { id: true },
+              take: 1,
+            },
+          },
         });
         if (
           !current ||
           current.status === "PAID" ||
-          current.loan.status !== "ACTIVE"
+          current.loan.status !== "ACTIVE" ||
+          current.payments.length > 0
         ) {
           await prisma.emailMessage.update({
             where: { id: message.id },
@@ -200,7 +217,9 @@ export async function processEmails(
               status: "CANCELLED",
               completedAt: new Date(),
               lockedAt: null,
-              lastError: "Tagihan sudah selesai",
+              lastError: current?.payments?.length
+                ? "Pembayaran menunggu pemeriksaan pengelola dana."
+                : "Tagihan sudah selesai",
             },
           });
           continue;

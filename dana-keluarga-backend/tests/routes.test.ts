@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   db: {
     fundRequest: {
       aggregate: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
@@ -24,8 +26,22 @@ const mocks = vi.hoisted(() => ({
       findUniqueOrThrow: vi.fn(),
       update: vi.fn(),
     },
-    loanInstallment: { findFirst: vi.fn(), createMany: vi.fn() },
-    payment: { findFirst: vi.fn() },
+    loanInstallment: {
+      findFirst: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      createMany: vi.fn(),
+    },
+    payment: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+    },
+    familyBankAccount: { findFirst: vi.fn(), create: vi.fn() },
     emailMessage: {
       findMany: vi.fn(),
       count: vi.fn(),
@@ -48,6 +64,7 @@ const mocks = vi.hoisted(() => ({
       count: vi.fn(),
     },
     loan: {
+      findMany: vi.fn(),
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
@@ -64,14 +81,16 @@ const mocks = vi.hoisted(() => ({
     approvalStep: { update: vi.fn() },
     approvalAction: { findFirst: vi.fn(), create: vi.fn() },
     auditLog: { create: vi.fn() },
-    ledgerEntry: { findUnique: vi.fn(), groupBy: vi.fn(), create: vi.fn() },
+    ledgerEntry: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+      findUnique: vi.fn(),
+      groupBy: vi.fn(),
+      create: vi.fn(),
+    },
   },
-  settle: vi.fn(),
 }));
 vi.mock("../src/config/prisma", () => ({ prisma: mocks.db }));
-vi.mock("../src/modules/payments/payment.service", () => ({
-  settleSandboxPayment: mocks.settle,
-}));
 import { app } from "../src/app";
 import { env } from "../src/config/env";
 const userId = "00000000-0000-4000-8000-000000000001";
@@ -133,7 +152,12 @@ beforeEach(() => {
   mocks.db.fundRequest.create.mockResolvedValue({ id: installmentId });
   mocks.db.fundRequest.update.mockResolvedValue({ id: installmentId });
   env.NODE_ENV = "test";
-  env.PAYMENT_PROVIDER = "sandbox";
+  mocks.db.familyBankAccount.findFirst.mockResolvedValue(null);
+  mocks.db.familyMember.findUnique.mockImplementation(async () => ({
+    status: "ACTIVE",
+    role,
+    user: { isActive: true, systemRole: "USER" },
+  }));
   mocks.db.user.findUnique.mockImplementation(async () => ({
     id: userId,
     isActive: active,
@@ -151,7 +175,7 @@ beforeEach(() => {
   mocks.db.emailMessage.count.mockResolvedValue(0);
 });
 
-describe("HTTP authorization and simulation boundaries", () => {
+describe("HTTP authorization and retired payment routes", () => {
   it("requires login to open an installment link", async () => {
     expect(
       (
@@ -194,53 +218,23 @@ describe("HTTP authorization and simulation boundaries", () => {
     memberships = false;
     expect((await request("/loans")).status).toBe(403);
   });
-  it("does not allow a member to simulate successful payment", async () => {
-    expect(
-      (await request(`/payments/${installmentId}/simulate-success`, "POST"))
-        .status,
-    ).toBe(403);
-    expect(mocks.settle).not.toHaveBeenCalled();
+  it("retires provider callbacks without changing payments", async () => {
+    const response = await request(
+      "/payments/webhooks/sandbox",
+      "POST",
+      { status: "SUCCESS" },
+      false,
+    );
+    expect(response.status).toBe(410);
+    expect(mocks.db.payment.update).not.toHaveBeenCalled();
   });
-  it("disables simulated settlements and payment creation in production", async () => {
-    role = "ADMIN";
-    env.NODE_ENV = "production";
+  it("removes simulation confirmation for all roles", async () => {
+    role = "TREASURER";
     expect(
       (await request(`/payments/${installmentId}/simulate-success`, "POST"))
         .status,
     ).toBe(404);
-    expect(
-      (
-        await request(
-          `/payments/loans/${familyId}/installments/${installmentId}`,
-          "POST",
-        )
-      ).status,
-    ).toBe(503);
-    expect(mocks.settle).not.toHaveBeenCalled();
-  });
-  it("does not produce fake Midtrans payments", async () => {
-    env.PAYMENT_PROVIDER = "midtrans";
-    expect(
-      (
-        await request(
-          `/payments/loans/${familyId}/installments/${installmentId}`,
-          "POST",
-        )
-      ).status,
-    ).toBe(503);
-  });
-  it("blocks the old unsigned public webhook", async () => {
-    expect(
-      (
-        await request(
-          "/payments/webhooks/sandbox",
-          "POST",
-          { externalId: "anything", status: "SUCCESS" },
-          false,
-        )
-      ).status,
-    ).toBe(503);
-    expect(mocks.settle).not.toHaveBeenCalled();
+    expect(mocks.db.payment.update).not.toHaveBeenCalled();
   });
   it("scopes notification previews to the member or managing family", async () => {
     await request("/notifications");
@@ -263,17 +257,6 @@ describe("HTTP authorization and simulation boundaries", () => {
       where: { id: userId },
       select: { email: true },
     });
-  });
-  it("returns expired intents as expired when opening a stale link", async () => {
-    mocks.db.loanInstallment.findFirst.mockResolvedValue({
-      id: installmentId,
-      status: "UNPAID",
-      payments: [
-        { id: "payment", status: "PENDING", expiresAt: new Date("2000-01-01") },
-      ],
-    });
-    const response = await request(`/payments/installments/${installmentId}`);
-    expect((await response.json()).data.payments[0].status).toBe("EXPIRED");
   });
 });
 
@@ -396,7 +379,7 @@ describe("loan journey through HTTP routes", () => {
     for (const path of [
       "/loans",
       `/loans/${loanId}/approve`,
-      `/payments/${installmentId}/simulate-success`,
+      `/payments/${installmentId}/confirm`,
       "/ledger",
     ]) {
       expect(
@@ -411,7 +394,7 @@ describe("loan journey through HTTP routes", () => {
       ).toBe(403);
     }
     expect(mocks.db.ledgerEntry.create).not.toHaveBeenCalled();
-    expect(mocks.settle).not.toHaveBeenCalled();
+    expect(mocks.db.payment.update).not.toHaveBeenCalled();
   });
   it("rejects hierarchy writes by ordinary members and malformed configuration", async () => {
     const input = {
@@ -708,5 +691,309 @@ describe("member family filters", () => {
       400,
     );
     expect(mocks.db.familyMember.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("family ledger pages and managing role access", () => {
+  it.each(["ADMIN", "TREASURER", "MEMBER"])(
+    "scopes %s loan lists to their permitted family and borrower",
+    async (memberRole) => {
+      role = memberRole;
+      mocks.db.loan.findMany.mockResolvedValue([]);
+      expect((await request("/loans")).status).toBe(200);
+      expect(mocks.db.loan.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            familyId,
+            ...(memberRole === "MEMBER" ? { borrowerId: userId } : {}),
+          },
+        }),
+      );
+    },
+  );
+  it("pages ledger history beyond its old 100 row limit, without losing family scope", async () => {
+    mocks.db.ledgerEntry.findMany.mockResolvedValue([]);
+    mocks.db.ledgerEntry.count.mockResolvedValue(125);
+    const response = await request("/ledger?page=6");
+    expect(response.status).toBe(200);
+    expect((await response.json()).pagination).toEqual({
+      page: 6,
+      pageSize: 20,
+      total: 125,
+    });
+    expect(mocks.db.ledgerEntry.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { familyId }, skip: 100, take: 20 }),
+    );
+    expect(mocks.db.ledgerEntry.count).toHaveBeenCalledWith({
+      where: { familyId },
+    });
+  });
+  it("rejects invalid ledger pages before querying the database", async () => {
+    expect((await request("/ledger?page=0")).status).toBe(400);
+    expect(mocks.db.ledgerEntry.findMany).not.toHaveBeenCalled();
+  });
+  it("keeps a member's fund history private when paging past 100 records", async () => {
+    mocks.db.familyMember.findUnique.mockResolvedValue({
+      status: "ACTIVE",
+      user: { isActive: true },
+    });
+    mocks.db.familyMember.findMany.mockResolvedValue([]);
+    mocks.db.ledgerEntry.groupBy.mockResolvedValue([]);
+    mocks.db.loan.findMany.mockResolvedValue([]);
+    mocks.db.fundRequest.findMany.mockResolvedValue([]);
+    mocks.db.fundRequest.count.mockResolvedValue(125);
+    const response = await request("/cash?page=6");
+    expect(response.status).toBe(200);
+    expect((await response.json()).data.requestsTotal).toBe(125);
+    expect(mocks.db.fundRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { familyId, userId },
+        skip: 100,
+        take: 20,
+      }),
+    );
+  });
+  it("rejects reassignment management by members", async () => {
+    expect(
+      (await request(`/approvals/${installmentId}/reassignments`)).status,
+    ).toBe(403);
+  });
+});
+
+describe("manual transfer HTTP permissions", () => {
+  const loanId = "00000000-0000-4000-8000-000000000004";
+  const accountId = "00000000-0000-4000-8000-000000000005";
+  const paymentId = "00000000-0000-4000-8000-000000000006";
+  const report = {
+    idempotencyKey: paymentId,
+    bankAccountId: accountId,
+    amount: "500000",
+    transferredAt: "2026-01-02T03:00:00Z",
+    transferReference: "REF-123",
+    transferNotes: "Dari rekening peminjam",
+  };
+  beforeEach(() => {
+    mocks.db.familyBankAccount.findFirst.mockResolvedValue({
+      id: accountId,
+      familyId,
+      version: 1,
+      bankName: "BCA",
+      accountNumber: "0012345678",
+      accountHolder: "Keluarga A",
+    });
+    mocks.db.familyMember.findMany.mockResolvedValue([]);
+  });
+  it("accepts one-click reporting with server-controlled amount and pending status", async () => {
+    mocks.db.loanInstallment.findFirst.mockResolvedValue({
+      id: installmentId,
+      remainingAmount: new Prisma.Decimal(500000),
+      loan: { status: "ACTIVE" },
+    });
+    mocks.db.payment.create.mockImplementation(async ({ data }) => ({
+      id: paymentId,
+      ...data,
+    }));
+    const response = await request(
+      `/payments/loans/${loanId}/installments/${installmentId}`,
+      "POST",
+      {
+        idempotencyKey: paymentId,
+        bankAccountId: accountId,
+        expectedRemainingAmount: "500000",
+      },
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      status: "PENDING",
+      amount: "500000",
+      transferredAt: null,
+      transferReference: null,
+    });
+    expect(mocks.db.ledgerEntry.create).not.toHaveBeenCalled();
+  });
+  it.each(["MEMBER", "TREASURER"])(
+    "returns the same waiting status in detail and schedule for %s",
+    async (memberRole) => {
+      role = memberRole;
+      const own = memberRole === "MEMBER";
+      const installment = {
+        id: installmentId,
+        remainingAmount: new Prisma.Decimal(500000),
+        paidAmount: new Prisma.Decimal(0),
+        dueDate: new Date("2999-01-01"),
+        status: "UNPAID",
+        loan: { status: "ACTIVE", borrowerId: own ? userId : "another-user" },
+        payments: [
+          {
+            provider: "MANUAL",
+            status: "PENDING",
+            bankAccount: { id: accountId },
+            bankAccountId: accountId,
+          },
+        ],
+      };
+      mocks.db.loanInstallment.findFirst.mockResolvedValue(installment);
+      mocks.db.loan.findMany.mockResolvedValue([
+        { id: loanId, installments: [installment] },
+      ]);
+      const detailResponse = await request(
+        `/payments/installments/${installmentId}`,
+      );
+      expect(detailResponse.status).toBe(200);
+      const detail = (await detailResponse.json()).data;
+      expect(detail.paymentStatus).toBe("PENDING_REVIEW");
+      expect(detail.canReport).toBe(false);
+      expect(detail.canReview).toBe(!own);
+      const listResponse = await request("/loans");
+      expect(listResponse.status).toBe(200);
+      expect(
+        (await listResponse.json()).data[0].installments[0].paymentStatus,
+      ).toBe(detail.paymentStatus);
+    },
+  );
+  it("does not allow extra payment evidence or status in a one-click request", async () => {
+    const minimal = { idempotencyKey: paymentId, bankAccountId: accountId };
+    for (const extra of [
+      { status: "SUCCESS" },
+      { amount: "1" },
+      { transferredAt: "2026-01-01" },
+    ]) {
+      expect(
+        (
+          await request(
+            `/payments/loans/${loanId}/installments/${installmentId}`,
+            "POST",
+            { ...minimal, ...extra },
+          )
+        ).status,
+      ).toBe(400);
+    }
+    expect(mocks.db.payment.create).not.toHaveBeenCalled();
+  });
+  it("lets a borrower report a transfer in production without gateway configuration", async () => {
+    env.NODE_ENV = "production";
+    mocks.db.loanInstallment.findFirst.mockResolvedValue({
+      id: installmentId,
+      remainingAmount: new Prisma.Decimal(500000),
+      loan: {
+        status: "ACTIVE",
+        familyId,
+        borrowerId: userId,
+        disbursedAt: new Date("2026-01-01"),
+      },
+    });
+    mocks.db.payment.create.mockImplementation(async ({ data }) => ({
+      id: paymentId,
+      ...data,
+    }));
+    const response = await request(
+      `/payments/loans/${loanId}/installments/${installmentId}`,
+      "POST",
+      report,
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).data.provider).toBe("MANUAL");
+    expect(mocks.db.payment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        payerId: userId,
+        familyId,
+        bankAccountId: accountId,
+      }),
+    });
+    expect(mocks.db.ledgerEntry.create).not.toHaveBeenCalled();
+  });
+  it.each(["ADMIN", "TREASURER", "MEMBER"])(
+    "does not let %s report another borrower's installment",
+    async (memberRole) => {
+      role = memberRole;
+      mocks.db.loanInstallment.findFirst.mockResolvedValue(null);
+      expect(
+        (
+          await request(
+            `/payments/loans/${loanId}/installments/${installmentId}`,
+            "POST",
+            report,
+          )
+        ).status,
+      ).toBe(403);
+      expect(mocks.db.loanInstallment.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: installmentId,
+            loanId,
+            loan: { familyId, borrowerId: userId },
+          },
+        }),
+      );
+      expect(mocks.db.payment.create).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["ADMIN", "MEMBER"])(
+    "denies confirmation and bank editing to %s",
+    async (memberRole) => {
+      role = memberRole;
+      expect(
+        (
+          await request(`/payments/${paymentId}/confirm`, "POST", {
+            notes: "Sesuai mutasi bank",
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await request("/payments/bank-account", "PUT", {
+            expectedVersion: 1,
+            bankName: "BCA",
+            accountNumber: "0012345678",
+            accountHolder: "Keluarga A",
+          })
+        ).status,
+      ).toBe(403);
+      expect(mocks.db.payment.update).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps the confirmation queue within the active family and excludes the manager's own loans", async () => {
+    role = "TREASURER";
+    mocks.db.payment.findMany.mockResolvedValue([]);
+    mocks.db.payment.count.mockResolvedValue(25);
+    const response = await request("/payments/pending?page=2");
+    expect(response.status).toBe(200);
+    expect((await response.json()).data.total).toBe(25);
+    expect(mocks.db.payment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          familyId,
+          provider: "MANUAL",
+          status: "PENDING",
+          payerId: { not: userId },
+          loan: { borrowerId: { not: userId } },
+        }),
+        skip: 20,
+        take: 20,
+      }),
+    );
+  });
+  it("denies a forged success field on a borrower report", async () => {
+    expect(
+      (
+        await request(
+          `/payments/loans/${loanId}/installments/${installmentId}`,
+          "POST",
+          { ...report, status: "SUCCESS" },
+        )
+      ).status,
+    ).toBe(400);
+    expect(mocks.db.payment.create).not.toHaveBeenCalled();
+  });
+  it("blocks operational payment changes by Super Admin", async () => {
+    systemRole = "SUPER_ADMIN";
+    expect(
+      (
+        await request(`/payments/${paymentId}/confirm`, "POST", {
+          notes: "Sesuai mutasi bank",
+        })
+      ).status,
+    ).toBe(403);
+    expect(mocks.db.payment.update).not.toHaveBeenCalled();
   });
 });

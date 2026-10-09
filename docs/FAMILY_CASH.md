@@ -4,7 +4,7 @@
 
 Migration `20260918120000_family_cash` sudah diterapkan pada database aplikasi setelah pengguna secara eksplisit meminta pengosongan seluruh data kecuali akun Super Admin. Backup privat dibuat sebelum penghapusan. Semua tabel bisnis dan sesi kosong; satu akun Super Admin dipertahankan tanpa perubahan credential. Pembacaan seluruh 19 model Prisma dan build backend berhasil setelah migration.
 
-Tidak ada deployment website atau pengiriman email nyata. Pengosongan database dilaksanakan atas permintaan eksplisit pengguna. Pengiriman SMTP memerlukan konfigurasi pengelola. Pembayaran online masih sandbox; pencatatan setoran/tarikan bukan transfer bank otomatis.
+Tidak ada deployment website atau pengiriman email nyata. Pengosongan database dilaksanakan atas permintaan eksplisit pengguna. Pengiriman SMTP memerlukan konfigurasi pengelola. Pembayaran cicilan menggunakan transfer bank manual yang diperiksa pengelola dana (lihat [PAYMENTS.md](PAYMENTS.md)); pencatatan setoran/tarikan bukan transfer bank otomatis.
 
 ## Temuan dan arsitektur
 
@@ -53,9 +53,9 @@ Semua endpoint membutuhkan login dan keluarga aktif. `familyId` tidak diambil da
 - `POST /api/v1/cash/requests`: payload yang sama ditambah `tenorMonths`. Backend menghitung ulang split dari saldo terkunci.
 - `POST /api/v1/loans`: alias alur permintaan dana yang sama, bukan jalan pintas untuk mengabaikan kontribusi. Pengajuan atas nama pemilik kontribusi lain ditolak.
 - `POST /api/v1/ledger`: pengelola mencatat pemasukan/pengeluaran umum dengan UUID idempotencyKey; bukan kontribusi personal.
-- Endpoint pembuatan pembayaran cicilan menerima `amount` opsional. Kosong berarti seluruh sisa cicilan. Pembayaran sebagian ≤ sisa cicilan. Konfirmasi sandbox tetap khusus pengelola dan tidak tersedia di production.
+- Endpoint laporan pembayaran hanya untuk peminjam. Halaman cicilan melaporkan seluruh sisa cicilan melalui tombol **Saya sudah transfer**, lalu menampilkan **Menunggu pemeriksaan**. Server menentukan nominal dan mencegah laporan ganda; format rinci sebelumnya tetap diterima untuk kompatibilitas. Hanya TREASURER pada keluarga terkait dapat menerima atau menolak laporan; peminjam tidak dapat mengonfirmasi pembayarannya sendiri.
 
-UUID idempotensi digunakan ulang saat retry formulir yang sama. UUID + payload berbeda ditolak. Permintaan yang berbeda menggunakan UUID baru. Klik submit dicegah di UI; backend tetap menjadi pengaman utama. Payment intent pending digunakan kembali, sedangkan konfirmasi payment SUCCESS tidak mem-posting ulang.
+UUID idempotensi digunakan ulang saat retry formulir yang sama. UUID + payload berbeda ditolak. Permintaan yang berbeda menggunakan UUID baru. Klik submit dicegah di UI; backend tetap menjadi pengaman utama. Laporan transfer yang diulang dengan UUID dan data sama digunakan kembali. Laporan pending tidak mengubah utang/kas, sedangkan konfirmasi payment SUCCESS tidak mem-posting ulang.
 
 ## Database dan concurrency
 
@@ -134,3 +134,21 @@ Migration `20260918170000_email_only` telah diterapkan. Tabel pesan serta kolom 
 Deduplikasi event sekarang menggunakan `EmailMessage.eventKey`, dan inbox aplikasi dibuat hanya saat event baru dimasukkan. Pencatatan kas tidak bergantung pada keberhasilan SMTP. Menu Pengaturan menampilkan email akun, mode pengiriman, dan riwayat email sesuai scope akses pengguna.
 
 Konfigurasi saat pemeriksaan: `EMAIL_MODE=disabled`, SMTP belum diisi. Untuk email nyata, atur `EMAIL_FROM` dan kredensial penyedia (`SMTP_*` untuk `smtp`, `RESEND_API_KEY` untuk `resend`), lalu ubah `EMAIL_MODE` dan restart API. Jangan memasukkan password SMTP ke repository atau chat. Tidak ada email nyata yang dikirim selama pengujian.
+
+## Riwayat dan akses pengelola
+
+Admin keluarga dan TREASURER dapat melihat pinjaman/cicilan seluruh anggota pada keluarga aktif; anggota biasa hanya dapat melihat pinjamannya sendiri. Label Ringkasan “Saldo kas keluarga” adalah pemasukan dikurangi pengeluaran. Dana yang belum dicairkan tetap dicadangkan; lihat “Kas tersedia untuk diambil” pada Kas Keluarga untuk nilai setelah cadangan.
+
+Riwayat kas (`GET /ledger?page=N`) dan pengambilan dana (`GET /cash?page=N`) menggunakan 20 baris per halaman. API ledger mengembalikan `data` berupa array dan `pagination` berisi `page`, `pageSize`, `total`; API cash menambahkan `requestsTotal`. Navigasi halaman UI dapat menelusuri catatan melewati batas 100 sebelumnya.
+
+## Verifikasi transfer manual — 9 Oktober 2026
+
+Frontend menggunakan versi 0.1.0 yang ditampilkan pada footer. Commit Git tetap diperlukan untuk mengidentifikasi build dan manual secara tepat.
+
+Build TypeScript backend/frontend, lint frontend, 193 tes backend dan 25 tes frontend telah dijalankan. Tes memeriksa kepemilikan cicilan, role pengelola dana, batas keluarga, penolakan konfirmasi sendiri, idempotensi laporan/konfirmasi, penolakan laporan, versi rekening, pembayaran parsial/penuh, serta status Loan dan FundRequest PAID_OFF. Tidak ada adapter atau pengaturan gateway pada runtime pembayaran.
+
+Migration baru `20261009090000_manual_bank_transfers` bersifat tambahan: menambah versi rekening keluarga, metadata transfer serta pemeriksaan, dan indeks referensi transfer yang masih pending/success. Data pembayaran dan ledger lama dipertahankan sebagai riwayat, tanpa menjadikannya laporan transfer baru atau menghapus kas. Terapkan migration saat memperbarui backend sebelum menggunakan form rekening/transfer.
+
+Alur pembayaran satu klik mencatat email untuk laporan baru kepada pengelola dana, alasan penolakan kepada peminjam, dan penerimaan/pelunasan kepada peminjam. Pemeriksaan nyata tersedia melalui `npm run email:check -- --to alamat-akun@example.com`; perintah memakai outbox aplikasi dan hanya memproses satu record uji. `SENT` berarti penyedia menerima pesan; penerimaan inbox/spam perlu dikonfirmasi penerima. Record lama yang dibatalkan saat email nonaktif tidak diaktifkan ulang secara otomatis.
+
+Uji PostgreSQL menggunakan schema fixture acak yang dibuat dan dihapus oleh `npm run test:cash:integration`. Uji ini tidak mengubah data pada schema aplikasi. Pengiriman email pada fixture menggunakan simulasi khusus email. Tidak ada transfer bank nyata, deployment, atau migrasi pada schema aplikasi dalam pemeriksaan ini. Hasil uji pada bagian dokumentasi terdahulu tetap merupakan catatan historis.

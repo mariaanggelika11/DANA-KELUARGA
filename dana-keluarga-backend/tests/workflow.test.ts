@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => {
     $transaction: vi.fn(),
     $queryRaw: vi.fn(),
     user: { findUnique: vi.fn() },
-    familyMember: { findMany: vi.fn() },
+    familyMember: { findMany: vi.fn(), findUnique: vi.fn() },
     loan: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
     loanInstallment: {
       findMany: vi.fn(),
@@ -15,7 +15,11 @@ const mocks = vi.hoisted(() => {
       aggregate: vi.fn(),
       findFirst: vi.fn(),
     },
-    payment: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
+    payment: {
+      findFirst: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      update: vi.fn(),
+    },
     fundRequest: { updateMany: vi.fn() },
     auditLog: { create: vi.fn() },
     ledgerEntry: { create: vi.fn(), groupBy: vi.fn() },
@@ -38,7 +42,13 @@ import {
   reminderStage,
   scheduleReminders,
 } from "../src/modules/notifications/notification.worker";
-import { settleSandboxPayment } from "../src/modules/payments/payment.service";
+import { reviewTransfer } from "../src/modules/payments/payment.service";
+const reviewer = {
+  sub: "treasurer-a",
+  familyId: "family-a",
+  familyRole: "TREASURER",
+  systemRole: "USER",
+};
 const db = mocks.db;
 const tx = db as unknown as Prisma.TransactionClient;
 const now = new Date("2026-09-12T09:00:00+07:00");
@@ -64,11 +74,15 @@ const payment = {
   familyId: "family-a",
   payerId: "member",
   installmentId: "installment",
-  provider: "SANDBOX",
+  provider: "MANUAL",
   status: "PENDING",
+  bankAccountId: "account",
+  transferReference: "REF-123",
+  transferredAt: new Date("2026-09-12T09:00:00+07:00"),
   amount: new Prisma.Decimal(500000),
   expiresAt: new Date("2099-01-01"),
   installment: {
+    loanId: "loan",
     status: "UNPAID",
     remainingAmount: new Prisma.Decimal(500000),
     installmentNumber: 1,
@@ -98,6 +112,12 @@ beforeEach(() => {
   db.emailMessage.createMany.mockResolvedValue({ count: 1 });
   db.emailMessage.findMany.mockResolvedValue([]);
   db.loanInstallment.findMany.mockResolvedValue([]);
+  db.payment.findFirst.mockResolvedValue(payment);
+  db.familyMember.findUnique.mockResolvedValue({
+    status: "ACTIVE",
+    role: "TREASURER",
+    user: { isActive: true, systemRole: "USER" },
+  });
   db.payment.findUniqueOrThrow.mockImplementation(async () => payment);
   db.payment.update.mockResolvedValue({ ...payment, status: "SUCCESS" });
   db.loanInstallment.aggregate.mockResolvedValue({
@@ -177,9 +197,14 @@ describe("WIB reminder scheduling", () => {
   });
 });
 
-describe("sandbox settlement", () => {
+describe("manual transfer confirmation", () => {
   it("records payment, ledger and outbox in one transaction and cancels reminders", async () => {
-    await settleSandboxPayment("payment");
+    await reviewTransfer(
+      reviewer,
+      "payment",
+      "confirm",
+      "Sesuai mutasi rekening",
+    );
     expect(db.$transaction).toHaveBeenCalledTimes(1);
     expect(db.ledgerEntry.create).toHaveBeenCalledTimes(1);
     expect(db.emailMessage.updateMany).toHaveBeenCalledWith(
@@ -199,13 +224,18 @@ describe("sandbox settlement", () => {
       ...payment,
       status: "SUCCESS",
     });
-    await settleSandboxPayment("payment");
+    await reviewTransfer(
+      reviewer,
+      "payment",
+      "confirm",
+      "Sesuai mutasi rekening",
+    );
     expect(db.ledgerEntry.create).not.toHaveBeenCalled();
     expect(db.emailMessage.createMany).not.toHaveBeenCalled();
   });
-  it("rejects expired, non-sandbox and mismatched payments without ledger writes", async () => {
+  it("rejects reviewed, legacy and excessive payments without ledger writes", async () => {
     for (const override of [
-      { expiresAt: new Date("2000-01-01") },
+      { status: "FAILED" },
       { provider: "MIDTRANS" },
       { amount: new Prisma.Decimal(500001) },
     ]) {
@@ -213,7 +243,14 @@ describe("sandbox settlement", () => {
         ...payment,
         ...override,
       });
-      await expect(settleSandboxPayment("payment")).rejects.toThrow();
+      await expect(
+        reviewTransfer(
+          reviewer,
+          "payment",
+          "confirm",
+          "Sesuai mutasi rekening",
+        ),
+      ).rejects.toThrow();
     }
     expect(db.ledgerEntry.create).not.toHaveBeenCalled();
   });
@@ -221,7 +258,12 @@ describe("sandbox settlement", () => {
     db.loanInstallment.aggregate.mockResolvedValue({
       _sum: { remainingAmount: new Prisma.Decimal(0) },
     });
-    await settleSandboxPayment("payment");
+    await reviewTransfer(
+      reviewer,
+      "payment",
+      "confirm",
+      "Sesuai mutasi rekening",
+    );
     expect(db.loan.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: "PAID_OFF" }),
@@ -284,5 +326,55 @@ describe("personal inbox creation", () => {
       body: "Lunas",
     });
     expect(db.notification.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("atomic manual settlement", () => {
+  it("posts a verified gateway receipt once and treats a duplicate callback as a no-op", async () => {
+    const online = { ...payment, provider: "MANUAL" };
+    db.payment.findUniqueOrThrow.mockResolvedValue(online);
+    await reviewTransfer(
+      reviewer,
+      payment.id,
+      "confirm",
+      "Sesuai mutasi rekening",
+    );
+    expect(db.loanInstallment.update).toHaveBeenCalledOnce();
+    expect(db.payment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reviewedById: reviewer.sub,
+          status: "SUCCESS",
+        }),
+      }),
+    );
+    expect(db.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "MANUAL_TRANSFER_CONFIRMED" }),
+      }),
+    );
+    db.payment.findUniqueOrThrow.mockResolvedValue({
+      ...online,
+      status: "SUCCESS",
+    });
+    await reviewTransfer(
+      reviewer,
+      payment.id,
+      "confirm",
+      "Sesuai mutasi rekening",
+    );
+    expect(db.loanInstallment.update).toHaveBeenCalledOnce();
+    expect(db.ledgerEntry.create).toHaveBeenCalledOnce();
+  });
+  it("rejects a mismatched amount before reducing an installment", async () => {
+    db.payment.findUniqueOrThrow.mockResolvedValue({
+      ...payment,
+      amount: new Prisma.Decimal(500001),
+    });
+    await expect(
+      reviewTransfer(reviewer, payment.id, "confirm", "Sesuai mutasi rekening"),
+    ).rejects.toThrow("Nominal laporan tidak sesuai");
+    expect(db.loanInstallment.update).not.toHaveBeenCalled();
+    expect(db.ledgerEntry.create).not.toHaveBeenCalled();
   });
 });

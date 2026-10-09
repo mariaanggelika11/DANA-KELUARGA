@@ -32,29 +32,56 @@ ledgerRouter.get("/", requireAuth, async (req: AuthRequest, res) => {
         message: "Akun belum memiliki keluarga",
       },
     });
+  const page = z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100000)
+    .default(1)
+    .parse(req.query.page);
   const entries = await prisma.ledgerEntry.findMany({
     where: { familyId: req.auth.familyId },
     include: { createdBy: { select: { id: true, name: true } } },
-    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
-    take: 100,
+    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+    take: 20,
+    skip: (page - 1) * 20,
   });
   const loanIds = entries
-    .filter((entry) => entry.type === "LOAN_DISBURSEMENT" && entry.referenceType === "LOAN")
-    .flatMap((entry) => entry.referenceId ? [entry.referenceId] : []);
-  const loans = loanIds.length ? await prisma.loan.findMany({
-    where: { familyId: req.auth.familyId, id: { in: loanIds } },
-    select: { id: true, borrower: { select: { name: true } } },
-  }) : [];
-  const borrowerNames = new Map(loans.map((loan) => [loan.id, loan.borrower.name]));
+    .filter(
+      (entry) =>
+        entry.type === "LOAN_DISBURSEMENT" && entry.referenceType === "LOAN",
+    )
+    .flatMap((entry) => (entry.referenceId ? [entry.referenceId] : []));
+  const loans = loanIds.length
+    ? await prisma.loan.findMany({
+        where: { familyId: req.auth.familyId, id: { in: loanIds } },
+        select: { id: true, borrower: { select: { name: true } } },
+      })
+    : [];
+  const borrowerNames = new Map(
+    loans.map((loan) => [loan.id, loan.borrower.name]),
+  );
   const data = entries.map((entry) => {
-    if (entry.type !== "LOAN_DISBURSEMENT" || entry.referenceType !== "LOAN") return entry;
-    const name = entry.referenceId ? borrowerNames.get(entry.referenceId) : undefined;
+    if (entry.type !== "LOAN_DISBURSEMENT" || entry.referenceType !== "LOAN")
+      return entry;
+    const name = entry.referenceId
+      ? borrowerNames.get(entry.referenceId)
+      : undefined;
     return {
       ...entry,
-      description: name ? `Pencairan pinjaman untuk ${name}` : "Pencairan pinjaman",
+      description: name
+        ? `Pencairan pinjaman untuk ${name}`
+        : "Pencairan pinjaman",
     };
   });
-  return res.json({ success: true, data });
+  const total = await prisma.ledgerEntry.count({
+    where: { familyId: req.auth.familyId },
+  });
+  return res.json({
+    success: true,
+    data,
+    pagination: { page, pageSize: 20, total },
+  });
 });
 
 ledgerRouter.post("/", requireAuth, async (req: AuthRequest, res) => {

@@ -18,9 +18,9 @@ const guides: Guide[] = [
       "Lihat posisi dana keluarga dan catatan uang masuk atau keluar.",
     steps: [
       "Buka Ringkasan untuk melihat saldo kas dan sisa dana yang masih dipinjamkan.",
-      "Buka Kas untuk membaca tanggal, keterangan, dan nominal setiap transaksi.",
+      "Buka Kas untuk membaca tanggal, keterangan, dan nominal setiap transaksi. Gunakan navigasi halaman untuk menelusuri catatan lama.",
       "Setiap anggota dapat memilih Setor dana untuk mencatat dana yang sudah diserahkan. Admin/Bendahara memakai Catat kas untuk pemasukan/pengeluaran umum, bukan kontribusi pribadi.",
-      "Saldo kontribusi tersedia sudah dikurangi dana yang dicadangkan untuk pengajuan. Pengembalian pinjaman menambah kas, bukan kontribusi Anda.",
+      "Saldo kas keluarga di Ringkasan adalah saldo total. Kas tersedia untuk diambil sudah dikurangi dana yang dicadangkan. Pengembalian pinjaman menambah kas, bukan kontribusi Anda.",
     ],
     target: "Kas",
   },
@@ -46,10 +46,11 @@ const guides: Guide[] = [
       "Setiap cicilan memiliki nominal, tanggal jatuh tempo, status, dan riwayat.",
     steps: [
       "Buka Cicilan, pilih nama anggota, lalu buka Lihat pembayaran pada cicilan yang dipilih.",
-      "Periksa sisa cicilan dan status. Anda dapat mengisi nominal pembayaran sebagian; kosongkan nominal untuk seluruh sisa cicilan.",
-      "Pada mode simulasi, anggota dapat membuat pembayaran uji. Hanya pengelola yang dapat mengonfirmasi keberhasilannya.",
+      "Periksa sisa cicilan dan rekening tujuan keluarga, lalu transfer seluruh sisa cicilan melalui bank Anda.",
+      "Klik Saya sudah transfer. Nominal otomatis mengikuti sisa cicilan dan laporan langsung Menunggu pemeriksaan, tanpa mengisi formulir. Hanya peminjam dapat melaporkan cicilannya sendiri.",
+      "Laporan berstatus Menunggu pemeriksaan belum mengurangi sisa cicilan. Pengelola dana keluarga memeriksa mutasi rekening dan mengonfirmasi Dana sudah masuk atau menolak dengan alasan.",
       "Setelah konfirmasi, status cicilan dan kas diperbarui. Jika semua cicilan lunas, pinjaman ditandai Lunas.",
-      "Jika status belum berubah, pilih Perbarui status. Hubungi pengelola bila masih tidak sesuai.",
+      "Jika laporan ditolak, baca alasan lalu laporkan kembali data yang benar. Pilih Perbarui status untuk memuat rincian terbaru. Jangan mentransfer ulang sebelum memastikan mutasi bank Anda.",
     ],
     target: "Cicilan",
   },
@@ -160,8 +161,9 @@ export function HelpGuide({
       </div>
       <Feedback tone="info" title="Status fitur saat ini">
         Pemberitahuan menggunakan email akun. Status pengiriman tersedia di
-        Pengaturan. Pembayaran online masih simulasi; konfirmasi pembayaran uji
-        mengubah catatan kas tanpa transfer uang otomatis.
+        Pengaturan. Pembayaran cicilan dilakukan melalui transfer bank manual.
+        Hanya peminjam melaporkan transfer, kemudian pengelola dana keluarga
+        mengonfirmasi uang masuk berdasarkan mutasi rekening.
       </Feedback>
       <div className="guide-topics">
         {visible.map((guide, index) => (
@@ -218,12 +220,14 @@ export function HelpGuide({
           <dt>Email belum masuk</dt>
           <dd>
             Periksa folder spam dan riwayat pengiriman di Pengaturan. Jika mode
-            pengiriman belum aktif, hubungi pengelola untuk konfigurasi SMTP.
+            pengiriman belum aktif, hubungi pengelola untuk konfigurasi SMTP
+            atau Resend.
           </dd>
           <dt>Pembayaran masih menunggu</dt>
           <dd>
-            Pada mode simulasi, minta pengelola memeriksa pembayaran uji. Jangan
-            melakukan transfer nyata berdasarkan tampilan simulasi.
+            Pilih Perbarui status pada detail cicilan. Jika masih menunggu,
+            hubungi pengelola dana untuk memeriksa mutasi rekening. Jangan
+            transfer ulang hanya karena laporan belum dikonfirmasi.
           </dd>
         </dl>
       </section>

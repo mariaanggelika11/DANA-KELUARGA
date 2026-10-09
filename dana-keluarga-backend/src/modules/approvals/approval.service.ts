@@ -554,3 +554,111 @@ export async function actOnRequest(
     });
   });
 }
+
+// An explicit, audited exception to the immutable policy snapshot. Only the
+// current waiting step may move; completed decisions and monetary data stay fixed.
+export async function reassignRequest(
+  actor: WorkflowActor,
+  id: string,
+  input: { userId: string; expectedAssignedUserId: string; reason: string },
+) {
+  requireOperationalActor(actor, actor.familyId ?? "");
+  if (actor.familyRole !== "ADMIN")
+    throw new WorkflowError(
+      "FORBIDDEN",
+      "Hanya Admin keluarga dapat mengganti petugas.",
+      403,
+    );
+  return prisma.$transaction(async (tx) => {
+    await lockFamily(tx, actor.familyId!);
+    const rows = await tx.$queryRaw<
+      { id: string }[]
+    >`SELECT id FROM "ApprovalRequest" WHERE id = ${id}::uuid AND "familyId" = ${actor.familyId}::uuid FOR UPDATE`;
+    if (!rows.length)
+      throw new WorkflowError(
+        "REQUEST_NOT_FOUND",
+        "Pengajuan tidak ditemukan.",
+        404,
+      );
+    const request = await tx.approvalRequest.findUniqueOrThrow({
+      where: { id },
+      include: { steps: true, loan: true },
+    });
+    const step = request.steps.find(
+      (item) => item.sequence === request.currentStep,
+    );
+    if (
+      !step ||
+      step.status !== "WAITING" ||
+      !["PENDING_APPROVAL", "PENDING_RELEASE"].includes(request.status)
+    )
+      throw new WorkflowError(
+        "REQUEST_ALREADY_PROCESSED",
+        "Tahap ini tidak lagi menunggu petugas.",
+      );
+    if (step.assignedUserId !== input.expectedAssignedUserId)
+      throw new WorkflowError(
+        "ASSIGNMENT_CHANGED",
+        "Petugas sudah berubah. Muat ulang pengajuan.",
+      );
+    if (
+      input.userId === request.makerId ||
+      input.userId === request.loan?.borrowerId ||
+      request.steps.some((item) => item.assignedUserId === input.userId)
+    )
+      throw new WorkflowError(
+        "INVALID_REPLACEMENT",
+        "Petugas pengganti harus berbeda dari pemohon dan seluruh petugas lainnya.",
+      );
+    const member = await tx.familyMember.findUnique({
+      where: {
+        familyId_userId: { familyId: request.familyId, userId: input.userId },
+      },
+      include: {
+        user: { select: { isActive: true, systemRole: true, name: true } },
+      },
+    });
+    if (
+      member?.status !== "ACTIVE" ||
+      !member.user.isActive ||
+      member.user.systemRole === "SUPER_ADMIN"
+    )
+      throw new WorkflowError(
+        "NOT_ACTIVE_MEMBER",
+        "Pilih anggota aktif keluarga ini.",
+        403,
+      );
+    await tx.approvalStep.update({
+      where: { id: step.id },
+      data: { assignedUserId: input.userId },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: actor.sub,
+        familyId: request.familyId,
+        action: "APPROVAL_STEP_REASSIGNED",
+        entityType: "ApprovalRequest",
+        entityId: id,
+        before: { step: step.sequence, assignedUserId: step.assignedUserId },
+        after: {
+          step: step.sequence,
+          assignedUserId: input.userId,
+          name: member.user.name,
+          reason: input.reason,
+        },
+      },
+    });
+    await notify(
+      tx,
+      input.userId,
+      request.familyId,
+      "Tugas pengajuan dialihkan kepada Anda",
+      `Anda ditunjuk sebagai ${step.permission === "RELEASER" ? "petugas pencairan" : "petugas persetujuan"} tahap ${step.sequence}. Alasan: ${input.reason}`,
+      id,
+    );
+    return tx.approvalRequest.findUniqueOrThrow({
+      where: { id },
+      include: requestInclude,
+    });
+  });
+}

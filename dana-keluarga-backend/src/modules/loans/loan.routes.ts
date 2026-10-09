@@ -8,6 +8,7 @@ import {
   requireOperationalActor,
 } from "../approvals/approval.rules";
 import { requireAuth, type AuthRequest } from "../../middleware/auth";
+import { installmentPaymentStatus } from "../payments/payment.rules";
 
 export const loanRouter = Router();
 loanRouter.use(requireAuth, (req: AuthRequest, res, next) => {
@@ -22,7 +23,9 @@ loanRouter.use(requireAuth, (req: AuthRequest, res, next) => {
 });
 
 loanRouter.get("/", async (req: AuthRequest, res) => {
-  const canViewAll = req.auth!.familyRole === "ADMIN";
+  const canViewAll = ["ADMIN", "TREASURER"].includes(
+    req.auth!.familyRole ?? "",
+  );
   const loans = await prisma.loan.findMany({
     where: {
       familyId: req.auth!.familyId,
@@ -48,11 +51,33 @@ loanRouter.get("/", async (req: AuthRequest, res) => {
       },
       approvedBy: { select: { id: true, name: true } },
       rejectedBy: { select: { id: true, name: true } },
-      installments: { orderBy: { installmentNumber: "asc" } },
+      installments: {
+        orderBy: { installmentNumber: "asc" },
+        include: {
+          payments: {
+            where: {
+              provider: "MANUAL",
+              status: "PENDING",
+              bankAccountId: { not: null },
+            },
+            select: { provider: true, status: true, bankAccountId: true },
+            take: 1,
+          },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
-  return res.json({ success: true, data: loans });
+  return res.json({
+    success: true,
+    data: loans.map((loan) => ({
+      ...loan,
+      installments: loan.installments.map(({ payments, ...installment }) => ({
+        ...installment,
+        paymentStatus: installmentPaymentStatus({ ...installment, payments }),
+      })),
+    })),
+  });
 });
 
 loanRouter.post("/", async (req: AuthRequest, res) => {

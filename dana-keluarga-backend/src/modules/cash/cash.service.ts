@@ -208,7 +208,7 @@ export async function requestFunds(
     return result;
   });
 }
-export async function cashSummary(actor: WorkflowActor) {
+export async function cashSummary(actor: WorkflowActor, page = 1) {
   return prisma.$transaction(async (tx) => {
     const familyId = await authorize(tx, actor);
     const balance = await cashBalance(tx, familyId);
@@ -235,10 +235,15 @@ export async function cashSummary(actor: WorkflowActor) {
     const requests = await tx.fundRequest.findMany({
       where: { familyId, ...(canManage ? {} : { userId: actor.sub }) },
       include: { user: { select: { name: true } } },
-      orderBy: { createdAt: "desc" },
-      take: 100,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 20,
+      skip: (page - 1) * 20,
+    });
+    const requestsTotal = await tx.fundRequest.count({
+      where: { familyId, ...(canManage ? {} : { userId: actor.sub }) },
     });
     return {
+      requestsTotal,
       balance,
       reserved,
       availableCash: balance.sub(reserved),

@@ -26,7 +26,7 @@ Anggota multikeluarga dapat memilih **Keluarga aktif**. Pergantian konteks memve
 - Riwayat `ApprovalAction` tidak dapat diubah/dihapus melalui aplikasi; trigger PostgreSQL juga menolak UPDATE/DELETE.
 - Request diserialisasi memakai row lock. Klik approve/release berulang oleh petugas yang sama menjadi no-op setelah berhasil. Pencairan, cicilan, ledger, action, audit, dan notifikasi berada dalam satu transaksi.
 - Perubahan hirarki membuat versi baru. Request lama tetap memakai snapshot petugas/urutan versi sebelumnya. Versi editor mencegah penimpaan perubahan pengguna lain.
-- Petugas yang dinonaktifkan tidak dapat bertindak. Belum ada penggantian petugas pada request berjalan; pengelola harus meninjau kasus tersebut, bukan sekadar mengubah kebijakan untuk request baru.
+- Petugas yang dinonaktifkan tidak dapat bertindak. Admin keluarga dapat mengganti petugas pada tahap aktif yang masih menunggu melalui detail pengajuan. Penggantian memerlukan alasan, anggota aktif pengganti, serta pemeriksaan petugas sebelumnya untuk mencegah penimpaan. Pemohon dan petugas tahap lain tidak boleh menjadi pengganti. Perubahan dicatat dalam audit dan ditampilkan sebagai riwayat penggantian; keputusan yang sudah selesai dan versi kebijakan tetap dipertahankan.
 
 ## Status
 

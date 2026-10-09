@@ -1,3 +1,4 @@
+import { ReassignApproval } from "./ReassignApproval";
 import { LoadingState } from "../../components/LoadingState";
 import { RefreshButton } from "../../components/RefreshButton";
 import { Pagination } from "../../components/Pagination";
@@ -300,6 +301,27 @@ export function ApprovalInbox({
               </li>
             ))}
           </ol>
+          {user.familyRole === "ADMIN" && (
+            <ReassignApproval
+              key={selected.id}
+              requestId={selected.id}
+              current={
+                current?.status === "WAITING" &&
+                ["PENDING_APPROVAL", "PENDING_RELEASE"].includes(
+                  selected.status,
+                )
+                  ? current
+                  : undefined
+              }
+              onChanged={() => {
+                void api<{ data: Request }>(`/approvals/${selected.id}`)
+                  .then(({ data }) => setSelected(data))
+                  .catch((err: Error) => setError(err.message));
+                setRevision((value) => value + 1);
+                onChanged();
+              }}
+            />
+          )}
           {actionable && (
             <div className="approval-action-area">
               <label>

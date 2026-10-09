@@ -14,7 +14,19 @@ export const fundRequestSchema = schema.extend({
 export const cashRouter = Router();
 cashRouter.use(requireAuth);
 cashRouter.get("/", async (req: AuthRequest, res) =>
-  res.json({ success: true, data: await cashSummary(req.auth!) }),
+  res.json({
+    success: true,
+    data: await cashSummary(
+      req.auth!,
+      z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(100000)
+        .default(1)
+        .parse(req.query.page),
+    ),
+  }),
 );
 cashRouter.post("/contributions", async (req: AuthRequest, res) =>
   res.status(201).json({
@@ -40,11 +52,9 @@ for (const [path, intent] of [
         expectedWithdrawal: z.string().regex(/^(0|[1-9][0-9]{0,15})$/),
       })
       .parse(req.body);
-    res
-      .status(201)
-      .json({
-        success: true,
-        data: await requestFunds(req.auth!, input, intent, expectedWithdrawal),
-      });
+    res.status(201).json({
+      success: true,
+      data: await requestFunds(req.auth!, input, intent, expectedWithdrawal),
+    });
   });
 }

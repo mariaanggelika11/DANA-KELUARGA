@@ -31,6 +31,8 @@ export async function enqueue(
     LOAN_DISBURSED: "Pencairan dicatat",
     INSTALLMENT_DUE: "Pengingat cicilan",
     PAYMENT_SUCCESS: "Pembayaran berhasil",
+    PAYMENT_REPORTED: "Transfer cicilan menunggu pemeriksaan",
+    PAYMENT_REJECTED: "Laporan transfer belum dapat diterima",
     LOAN_PAID_OFF: "Pinjaman lunas",
   };
   const type = Object.values(NotificationType).includes(
@@ -129,7 +131,11 @@ export async function queueLoanEvent(
   }
 }
 
-export async function cancelReminders(tx: Tx, installmentId: string) {
+export async function cancelReminders(
+  tx: Tx,
+  installmentId: string,
+  reason = "Cicilan sudah lunas",
+) {
   await tx.emailMessage.updateMany({
     where: {
       eventKey: { startsWith: `INSTALLMENT_DUE:${installmentId}:` },
@@ -139,7 +145,7 @@ export async function cancelReminders(tx: Tx, installmentId: string) {
       status: "CANCELLED",
       completedAt: new Date(),
       lockedAt: null,
-      lastError: "Cicilan sudah lunas",
+      lastError: reason,
     },
   });
 }

@@ -33,6 +33,13 @@ export async function scheduleReminders(now = new Date()) {
       dueDate: { gte: start, lt: end },
       status: { not: "PAID" },
       remainingAmount: { gt: 0 },
+      payments: {
+        none: {
+          provider: "MANUAL",
+          status: "PENDING",
+          bankAccountId: { not: null },
+        },
+      },
       loan: { status: "ACTIVE" },
     },
     include: {

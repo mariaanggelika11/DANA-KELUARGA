@@ -309,4 +309,30 @@ select[size="1"] {
   }
 }
 
-.member-edit-button { margin-top: 10px; }
+.member-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.member-row .member-edit-button {
+  margin: 0;
+  width: fit-content;
+  min-height: 32px;
+  padding: 6px 10px;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+@media (max-width: 850px) {
+  .member-row-actions {
+    grid-column: 1 / -1;
+  }
+}
+@media (pointer: coarse) {
+  .member-row .member-edit-button {
+    min-height: 44px;
+  }
+}
