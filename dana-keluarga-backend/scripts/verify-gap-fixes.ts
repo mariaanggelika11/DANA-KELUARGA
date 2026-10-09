@@ -332,9 +332,12 @@ async function main() {
       where: { userId: rollbackUser.id },
       data: { createdAt: new Date(Date.now() - 61_000) },
     });
-    await requestPasswordReset(rollbackUser.email!, async () => {
-      throw Error("Fixture delivery failure");
-    });
+    await assert.rejects(
+      requestPasswordReset(rollbackUser.email!, async () => {
+        throw Error("Fixture delivery failure");
+      }),
+      { code: "PASSWORD_RESET_DELIVERY_FAILED" },
+    );
     assert.equal(
       await prisma.passwordResetToken.count({
         where: { userId: rollbackUser.id, usedAt: null },

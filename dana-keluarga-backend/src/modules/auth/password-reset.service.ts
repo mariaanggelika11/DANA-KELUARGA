@@ -22,10 +22,17 @@ export async function requestPasswordReset(
   email: string,
   sender: EmailSender | null = defaultSender(),
 ) {
+  if (!sender) {
+    throw new WorkflowError(
+      "PASSWORD_RESET_UNAVAILABLE",
+      "Pengiriman email pemulihan belum tersedia. Hubungi admin untuk memeriksa konfigurasi email.",
+      503,
+    );
+  }
   const account = await prisma.user.findFirst({
     where: { email: { equals: email, mode: "insensitive" }, isActive: true },
   });
-  if (!account?.email || env.EMAIL_MODE === "disabled") return;
+  if (!account?.email) return;
   const token = crypto.randomBytes(32).toString("hex");
   const reset = await prisma.$transaction(async (tx) => {
     await lockSessionUser(tx, account.id);
@@ -38,6 +45,7 @@ export async function requestPasswordReset(
     const recent = await tx.passwordResetToken.findFirst({
       where: {
         userId: account.id,
+        usedAt: null,
         createdAt: { gt: new Date(Date.now() - 60_000) },
       },
     });
@@ -64,7 +72,7 @@ export async function requestPasswordReset(
   try {
     // Recovery has no family dependency (including platform owners). Send directly:
     // a bearer secret must not appear in the family email history or audit logs.
-    await sender?.({
+    await sender({
       id: reset.id,
       to: account.email,
       subject,
@@ -78,6 +86,11 @@ export async function requestPasswordReset(
     });
     // Do not expose transport errors, recipient addresses or recovery links.
     console.warn("Email pemulihan password belum berhasil dikirim.");
+    throw new WorkflowError(
+      "PASSWORD_RESET_DELIVERY_FAILED",
+      "Email pemulihan belum berhasil dikirim. Coba lagi nanti atau hubungi admin.",
+      503,
+    );
   }
 }
 

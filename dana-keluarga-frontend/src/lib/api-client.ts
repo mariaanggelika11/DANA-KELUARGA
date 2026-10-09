@@ -151,7 +151,18 @@ export async function api<T>(
       path === "/auth/login" && response.status === 401
         ? loginMessages[payload?.error?.code]
         : undefined;
+    const recoveryMessages: Record<string, string> = {
+      PASSWORD_RESET_UNAVAILABLE:
+        "Pengiriman email pemulihan belum tersedia. Hubungi admin untuk memeriksa konfigurasi email.",
+      PASSWORD_RESET_DELIVERY_FAILED:
+        "Email pemulihan belum berhasil dikirim. Coba lagi nanti atau hubungi admin.",
+    };
+    const recoveryMessage =
+      path === "/auth/forgot-password" && response.status === 503
+        ? recoveryMessages[payload?.error?.code]
+        : undefined;
     const safeMessage =
+      recoveryMessage ??
       loginMessage ??
       (response.status === 401 ||
       response.status === 429 ||
