@@ -348,7 +348,7 @@ export async function actOnRequest(
         where: {
           familyId_userId: { familyId: loan.familyId, userId: loan.borrowerId },
         },
-        include: { user: { select: { isActive: true } } },
+        include: { user: { select: { isActive: true, name: true } } },
       });
       if (borrower?.status !== "ACTIVE" || !borrower.user.isActive)
         throw new WorkflowError(
@@ -399,7 +399,7 @@ export async function actOnRequest(
           direction: "OUT",
           amount: request.amount,
           createdById: actor.sub,
-          description: `Pencairan pinjaman ${loan.id}`,
+          description: `Pencairan pinjaman untuk ${borrower.user.name}`,
           referenceType: "LOAN",
           referenceId: loan.id,
         },

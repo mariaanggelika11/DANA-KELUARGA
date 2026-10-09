@@ -286,10 +286,8 @@ export function ApprovalInbox({
           </p>
           <ol className="approval-timeline">
             {selected.steps.map((step) => (
-              <li key={step.sequence}>
-                <strong>
-                  {step.sequence}. {step.assignedUser.name}
-                </strong>
+              <li key={step.sequence} value={step.sequence}>
+                <strong>{step.assignedUser.name}</strong>
                 <span>
                   {step.permission === "RELEASER" ? "Releaser" : "Approver"} ·{" "}
                   {statusLabels[step.status] ?? step.status}

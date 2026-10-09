@@ -1297,7 +1297,17 @@ function App() {
                     )}
                   </span>
                   <div>
-                    <strong>{entry.description}</strong>
+                    <strong>
+                      {entry.type === "LOAN_DISBURSEMENT" &&
+                      /^Pencairan pinjaman [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entry.description)
+                        ? (() => {
+                            const loan = loans.find((item) => item.id === entry.referenceId);
+                            return loan
+                              ? `Pencairan pinjaman untuk ${loan.borrower.name}`
+                              : "Pencairan pinjaman";
+                          })()
+                        : entry.description}
+                    </strong>
                     <small>
                       {ledgerLabels[entry.type] ?? entry.type} · Tercatat
                     </small>
@@ -1308,11 +1318,6 @@ function App() {
                           {rupiah(entry.balanceAfter)}
                         </small>
                       )}
-                    {entry.referenceId && (
-                      <small className="ledger-reference">
-                        Referensi: {entry.referenceId}
-                      </small>
-                    )}
                     <small>
                       {date.format(new Date(entry.occurredAt))} ·{" "}
                       {entry.createdBy?.name ?? "Pengelola"}
