@@ -1,3 +1,4 @@
+import { requestId } from "./lib/request-id";
 import { useFinancialData } from "./hooks/useFinancialData";
 import { PageIntro } from "./components/layout/PageIntro";
 import { LoginForm } from "./features/auth/LoginForm";
@@ -142,7 +143,7 @@ function App() {
     void loadLedger();
     void loadSummary();
   };
-  const ledgerKey = useRef(crypto.randomUUID());
+  const ledgerKey = useRef(requestId());
   const [ledgerFormOpen, setLedgerFormOpen] = useState(false);
   const [ledgerForm, setLedgerForm] = useState({
     direction: "IN",
@@ -421,7 +422,7 @@ function App() {
         }),
       });
       setLedgerFormOpen(false);
-      ledgerKey.current = crypto.randomUUID();
+      ledgerKey.current = requestId();
       setLedgerForm({ direction: "IN", amount: "", description: "" });
       refreshFinancials();
       showNotice("Catatan kas berhasil disimpan.");

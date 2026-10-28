@@ -37,3 +37,14 @@ pnpm-debug.log*
 
 # Private local migration backups (may contain sensitive data)
 .local-backups/
+
+# Native local tooling and signing secrets
+.gradle/
+local.properties
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+xcuserdata/
+DerivedData/
+!.env.mobile.example

@@ -28,3 +28,7 @@ Bootstrap hanya membuat akun Super Admin dari konfigurasi lokal. Tidak ada kelua
 Notifikasi menggunakan outbox email dengan retry melalui SMTP atau Resend. Pembayaran cicilan dilakukan melalui transfer bank manual yang dilaporkan peminjam dan dikonfirmasi pengelola dana.
 
 Lihat [panduan Kas Keluarga dan email](docs/FAMILY_CASH.md) untuk migration, konfigurasi email, dan pengujian, serta [panduan pembayaran](docs/PAYMENTS.md) untuk alur transfer manual. Fixture pengujian berada di folder tests/scripts, tidak dimuat aplikasi, dan pengujian database menggunakan schema sementara.
+
+## Android dan iOS
+
+Proyek Capacitor berada di `dana-keluarga-frontend/android` dan `dana-keluarga-frontend/ios`. Lihat [panduan mobile](docs/MOBILE.md) untuk konfigurasi API, build APK/AAB, dan pengujian iOS.

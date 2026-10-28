@@ -11,6 +11,7 @@ import {
 } from "./modules/approvals/approval.routes";
 import { notificationRouter } from "./modules/notifications/notification.routes";
 import cors from "cors";
+import { allowedOrigins } from "./config/cors-origins";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { env } from "./config/env";
@@ -25,7 +26,9 @@ import { ledgerRouter } from "./modules/ledger/ledger.routes";
 
 export const app = express();
 app.use(helmet());
-app.use(cors({ origin: env.FRONTEND_URL }));
+app.use(
+  cors({ origin: allowedOrigins(env.FRONTEND_URL, env.MOBILE_APP_ORIGINS) }),
+);
 app.use(
   rateLimit({
     windowMs: 60_000,

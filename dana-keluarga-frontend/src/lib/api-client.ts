@@ -1,5 +1,7 @@
+import { Capacitor } from "@capacitor/core";
+
 const apiBase =
-  import.meta.env.VITE_API_BASE_URL ??
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") ??
   (import.meta.env.DEV ? "http://localhost:3000/api/v1" : "/api/v1");
 export class ApiError extends Error {
   readonly status: number;
@@ -66,6 +68,13 @@ export async function api<T>(
   options?: RequestInit,
   retried = false,
 ): Promise<T> {
+  if (Capacitor.isNativePlatform() && !/^https:\/\//.test(apiBase)) {
+    throw new ApiError(
+      "Alamat server aplikasi mobile belum dikonfigurasi. Hubungi pengelola aplikasi.",
+      0,
+      "MOBILE_API_NOT_CONFIGURED",
+    );
+  }
   const accessToken = localStorage.getItem("dana_access_token");
   const timeout = AbortSignal.timeout(20000);
   const signal = options?.signal

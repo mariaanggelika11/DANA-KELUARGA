@@ -1,3 +1,4 @@
+import { requestId } from "../../lib/request-id";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../../lib/api-client";
 import { currencyError, formatCurrency as money } from "../../lib/currency";
@@ -42,7 +43,7 @@ export function FundTransactionDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [withdrawInstead, setWithdrawInstead] = useState(false);
-  const key = useRef(crypto.randomUUID());
+  const key = useRef(requestId());
   const submitting = useRef(false);
   const confirm = useConfirmation();
   useEffect(() => {

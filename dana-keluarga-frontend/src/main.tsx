@@ -1,3 +1,5 @@
+import { initializeNative } from "./lib/native";
+import "./mobile.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
@@ -8,6 +10,8 @@ import "./components/Feedback.css";
 import "./components/DesignSystem.css";
 import "./components/Buttons.css";
 import "./features/auth/Auth.css";
+
+initializeNative();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

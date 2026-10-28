@@ -1,3 +1,4 @@
+import { requestId } from "../lib/request-id";
 import { Modal } from "./Modal";
 import { useBackgroundRevision } from "../hooks/useBackgroundRevision";
 import { LoadingState } from "./LoadingState";
@@ -114,7 +115,7 @@ export function InstallmentPayment({
   const backgroundRevision = useBackgroundRevision(!busy, 10000);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
-  const reportKey = useRef(crypto.randomUUID());
+  const reportKey = useRef(requestId());
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
@@ -195,7 +196,7 @@ export function InstallmentPayment({
       }
       setNotice(result.message);
       setRefresh((value) => value + 1);
-      reportKey.current = crypto.randomUUID();
+      reportKey.current = requestId();
       onSettled();
     } catch (err) {
       setError(

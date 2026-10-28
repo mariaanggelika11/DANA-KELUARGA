@@ -398,3 +398,85 @@
   background: white;
   font: inherit;
 }
+
+/* Keep page introductions compact and panel actions independent of their copy. */
+.app-content .intro {
+  padding-bottom: 16px;
+}
+.app-content .intro p:last-child {
+  margin-bottom: 0;
+  line-height: 1.6;
+}
+.app-content .panel-heading {
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.app-content .panel-heading > div {
+  min-width: 0;
+}
+.app-content .panel-heading > button {
+  flex-shrink: 0;
+}
+.app-content .panel-description {
+  line-height: 1.6;
+}
+.app-content .loan-list {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+.loan-list .loan-row {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto;
+  gap: 12px 16px;
+}
+.loan-list .loan-row > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.loan-list .loan-row small {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.loan-list .loan-row > .status {
+  justify-self: start;
+}
+.loan-list .loan-actions {
+  grid-column: 1 / -1;
+}
+@media (max-width: 550px) {
+  .app-content .intro {
+    padding-top: 24px;
+    padding-bottom: 16px;
+  }
+  .app-content .panel-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .app-content .panel-heading > button {
+    width: 100%;
+    min-height: 44px;
+  }
+  .app-content .loan-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 16px 0;
+  }
+  .loan-list .loan-row > div:first-child {
+    grid-column: 1 / -1;
+  }
+  .loan-list .loan-row > b {
+    font-size: 14px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .loan-list .loan-row > .status {
+    justify-self: end;
+    align-self: center;
+    font-size: 11px;
+  }
+  .app-content footer {
+    padding-top: 24px;
+    line-height: 1.6;
+  }
+}

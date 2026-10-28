@@ -19,6 +19,7 @@ const schema = z.object({
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
+  MOBILE_APP_ORIGINS: z.string().default(""),
   PUBLIC_APP_URL: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.string().url().optional(),

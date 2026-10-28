@@ -90,6 +90,17 @@ export function AppShell({
       document.removeEventListener("keydown", onKey);
     };
   }, [mobile, mobileOpen]);
+  useEffect(() => {
+    const onBack = (event: Event) => {
+      if (mobile && mobileOpen && !event.defaultPrevented) {
+        event.preventDefault();
+        setMobileOpen(false);
+        hamburger.current?.focus();
+      }
+    };
+    window.addEventListener("dana:native-back", onBack);
+    return () => window.removeEventListener("dana:native-back", onBack);
+  }, [mobile, mobileOpen]);
   return (
     <div className="app-shell app-layout">
       <a

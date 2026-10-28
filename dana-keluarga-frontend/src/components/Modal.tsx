@@ -30,6 +30,17 @@ export function Modal({
       previous?.focus();
     };
   }, []);
+  useEffect(() => {
+    const onBack = (event: Event) => {
+      if (event.defaultPrevented || !dialog.current?.open) return;
+      const dialogs = document.querySelectorAll("dialog[open]");
+      if (dialogs[dialogs.length - 1] !== dialog.current) return;
+      event.preventDefault();
+      if (!busy) onClose();
+    };
+    window.addEventListener("dana:native-back", onBack);
+    return () => window.removeEventListener("dana:native-back", onBack);
+  }, [busy, onClose]);
   return createPortal(
     <dialog
       ref={dialog}
